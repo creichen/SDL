@@ -279,20 +279,29 @@ SDL_SetMouseFocus(SDL_Window * window)
     SDL_SetCursor(NULL);
 }
 
+SDL_bool
+SDL_IsMousePositionInWindow(SDL_Window * window, SDL_MouseID mouseID, int x, int y)
+{
+    if (!window) {
+        return SDL_FALSE;
+    }
+
+    if (0 == (window->flags & SDL_WINDOW_MOUSE_CAPTURE)) {
+        int w, h;
+        SDL_GetWindowSize(window, &w, &h);
+        if (x < 0 || y < 0 || x >= w || y >= h) {
+            return SDL_FALSE;
+        }
+    }
+    return SDL_TRUE;
+}
+
 /* Check to see if we need to synthesize focus events */
 static SDL_bool
 SDL_UpdateMouseFocus(SDL_Window * window, int x, int y, Uint32 buttonstate, SDL_bool send_mouse_motion)
 {
     SDL_Mouse *mouse = SDL_GetMouse();
-    SDL_bool inWindow = SDL_TRUE;
-
-    if (window && ((window->flags & SDL_WINDOW_MOUSE_CAPTURE) == 0)) {
-        int w, h;
-        SDL_GetWindowSize(window, &w, &h);
-        if (x < 0 || y < 0 || x >= w || y >= h) {
-            inWindow = SDL_FALSE;
-        }
-    }
+    SDL_bool inWindow = SDL_IsMousePositionInWindow(window, mouse->mouseID, x, y);
 
     if (!inWindow) {
         if (window == mouse->focus) {

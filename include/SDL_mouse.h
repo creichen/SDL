@@ -69,6 +69,10 @@ typedef enum
     SDL_MOUSEWHEEL_FLIPPED    /**< The scroll direction is flipped / natural */
 } SDL_MouseWheelDirection;
 
+/* Used as the device ID for mouse events triggered by pen events */
+#define SDL_PEN_MOUSEID ((Uint32)-2)
+
+
 /* Function prototypes */
 
 /**

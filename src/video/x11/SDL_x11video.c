@@ -471,6 +471,8 @@ X11_VideoInit(_THIS)
 
     X11_InitTouch(_this);
 
+    X11_InitPen(_this);
+
     return 0;
 }
 
