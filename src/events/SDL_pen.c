@@ -23,10 +23,8 @@
 /* Pressure-sensitive pen handling code for SDL */
 
 #include "SDL_pen_c.h"
-#include "SDL_events.h"
 #include "SDL_events_c.h"
 
-#include <stdio.h> // FIXME
 static void
 pen_relative_coordinates(SDL_Window *window, SDL_bool relative, float *x, float *y)
 {
