@@ -26,6 +26,8 @@
 #include "SDL_timer.h"
 #include "SDL_events.h"
 #include "SDL_events_c.h"
+#include "SDL_mouse_c.h"
+#include "SDL_pen_c.h"
 #include "../SDL_hints_c.h"
 #include "../video/SDL_sysvideo.h"
 #ifdef __WIN32__
@@ -199,7 +201,7 @@ SDL_MouseInit(void)
 
     mouse->cursor_shown = SDL_TRUE;
 
-    return (0);
+    return SDL_PenInit();
 }
 
 void

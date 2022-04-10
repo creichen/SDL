@@ -153,6 +153,25 @@ process_event(SDL_Event event)
     case SDL_MOUSEMOTION:
     case SDL_MOUSEBUTTONDOWN:
     case SDL_MOUSEBUTTONUP:
+#if VERBOSE
+	int x, y;
+
+	SDL_GetMouseState(&x, &y);
+
+	if (event.type == SDL_MOUSEMOTION) {
+	    SDL_Log("mouse motion: mouse ID %d is at %d,%d  (state: %d,%d) delta (%d, %d)\n",
+		    event.motion.which,
+		    event.motion.x, event.motion.y,
+		    event.motion.xrel, event.motion.yrel,
+		    x, y);
+	} else {
+	    SDL_Log("mouse button: mouse ID %d is at %d,%d  (state: %d,%d)\n",
+		    event.button.which,
+		    event.button.x, event.button.y,
+		    x, y);
+	}
+
+#endif
         if (event.motion.which != SDL_PEN_MOUSEID) {
             SDL_ShowCursor(SDL_ENABLE);
         }

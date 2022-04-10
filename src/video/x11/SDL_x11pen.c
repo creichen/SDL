@@ -98,7 +98,9 @@ xinput2_pen_get_int_property(_THIS, int deviceid, Atom property, Sint32* dest, s
                                      0, max_words, False,
                                      XA_INTEGER, &type_return, &format_return,
                                      &num_items_return, &bytes_after_return,
-                                     &output)) {
+                                     &output)
+	|| num_items_return == 0
+	|| output == NULL) {
         return 0;
     }
 
@@ -205,9 +207,12 @@ xinput2_pen_is_eraser(_THIS, int deviceid, char* devicename)
                                          0, 32, False,
                                          AnyPropertyType, &type_return, &format_return,
                                          &num_items_return, &bytes_after_return,
-                                         &tooltype_name_info)) {
-            SDL_bool result = SDL_FALSE;
-            char *tooltype_name = NULL;
+                                         &tooltype_name_info)
+	    && tooltype_name_info != NULL
+	    && num_items_return > 0) {
+
+	    SDL_bool result = SDL_FALSE;
+	    char *tooltype_name = NULL;
 
             if (type_return == XA_ATOM) {
                 /* Atom instead of string?  Un-intern */
@@ -219,12 +224,14 @@ xinput2_pen_is_eraser(_THIS, int deviceid, char* devicename)
                 tooltype_name = (char*) tooltype_name_info;
             }
 
-            if (0 == SDL_strcasecmp(tooltype_name, PEN_ERASER_NAME_TAG)) {
-                result = SDL_TRUE;
-            }
-            X11_XFree(tooltype_name);
+	    if (tooltype_name) {
+		if (0 == SDL_strcasecmp(tooltype_name, PEN_ERASER_NAME_TAG)) {
+		    result = SDL_TRUE;
+		}
+		X11_XFree(tooltype_name_info);
 
-            return result;
+		return result;
+	    }
         }
     }
     /* Non-Wacom device? */
