@@ -47,6 +47,7 @@ TARGETS = \
 	testmultiaudio$(EXE) \
 	testnative$(EXE) \
 	testoverlay2$(EXE) \
+	testpen$(EXE) \
 	testplatform$(EXE) \
 	testpower$(EXE) \
 	testqsort$(EXE) \
@@ -173,7 +174,7 @@ testgeometry$(EXE): $(srcdir)/testgeometry.c
 
 testgesture$(EXE): $(srcdir)/testgesture.c
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS) @MATHLIB@
- 
+
 testgl2$(EXE): $(srcdir)/testgl2.c
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS) @MATHLIB@
 
@@ -254,6 +255,9 @@ endif
 
 testoverlay2$(EXE): $(srcdir)/testoverlay2.c $(srcdir)/testyuv_cvt.c
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
+
+testpen$(EXE): $(srcdir)/testpen.c
+	$(CC) -o $@ $^ $(CFLAGS) $(LIBS) @MATHLIB@
 
 testplatform$(EXE): $(srcdir)/testplatform.c
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)

@@ -23,11 +23,16 @@
 #ifndef SDL_x11events_h_
 #define SDL_x11events_h_
 
+#include "SDL_x11window.h"
+
 extern void X11_PumpEvents(_THIS);
 extern int  X11_WaitEventTimeout(_THIS, int timeout);
 extern void X11_SendWakeupEvent(_THIS, SDL_Window *window);
 extern void X11_SuspendScreenSaver(_THIS);
 extern void X11_ReconcileKeyboardState(_THIS);
+extern void X11_HandleButtonPress(_THIS, SDL_WindowData *wdata, int button, const int x, const int y, const unsigned long time);
+extern void X11_HandleButtonRelease(_THIS, SDL_WindowData *wdata, int button);
+
 
 #endif /* SDL_x11events_h_ */
 

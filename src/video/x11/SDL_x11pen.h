@@ -20,27 +20,31 @@
 */
 #include "../../SDL_internal.h"
 
-#ifndef SDL_x11xinput2_h_
-#define SDL_x11xinput2_h_
+#ifndef SDL_x11pen_h_
+#define SDL_x11pen_h_
 
-#ifndef SDL_VIDEO_DRIVER_X11_SUPPORTS_GENERIC_EVENTS
-/* Define XGenericEventCookie as forward declaration when
- *xinput2 is not available in order to compile */
-struct XGenericEventCookie;
-typedef struct XGenericEventCookie XGenericEventCookie;
-#endif
+#if SDL_VIDEO_DRIVER_X11_XINPUT2
 
-extern void X11_InitXinput2(_THIS);
-extern void X11_InitXinput2Multitouch(_THIS);
-extern int X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie);
-extern int X11_Xinput2IsInitialized(void);
-extern int X11_Xinput2IsMultitouchSupported(void);
-extern void X11_Xinput2SelectTouch(_THIS, SDL_Window *window);
-extern void X11_Xinput2GrabTouch(_THIS, SDL_Window *window);
-extern void X11_Xinput2UngrabTouch(_THIS, SDL_Window *window);
-extern SDL_bool X11_Xinput2SelectMouse(_THIS, SDL_Window *window);
+#include "../../events/SDL_pen_c.h"
 
+/* Pressure-sensitive pen */
 
-#endif /* SDL_x11xinput2_h_ */
+/* Forward definition for SDL_x11video.h */
+struct SDL_VideoData;
+
+/* Function definitions */
+
+/* Detect XINPUT2 devices that are pens / erasers, or update the list after hotplugging */
+extern void X11_InitPen(_THIS);
+
+/* Converts XINPUT2 valuators into pen axis information, including normalisation */
+extern void X11_PenAxesFromValuators(const SDL_Pen *pen,
+                                     const double *input_values, const unsigned char *mask, const int mask_len,
+                                     /* out-mode parameters: */
+                                     float axis_values[SDL_PEN_NUM_AXES]);
+
+#endif /* SDL_VIDEO_DRIVER_X11_XINPUT2 */
+
+#endif /* SDL_x11pen_h_ */
 
 /* vi: set ts=4 sw=4 expandtab: */
