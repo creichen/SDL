@@ -88,7 +88,7 @@ static void
 dump_state()
 {
     int i;
-    printf("Found %d pens\n", SDL_NumPens());
+    SDL_Log("Found %d pens\n", SDL_NumPens());
     for (i = 0; i < SDL_NumPens(); ++i) {
         SDL_PenID penid = SDL_PenIDForIndex(i);
         SDL_PenGUID guid = SDL_PenGUIDForPenID(penid);
@@ -101,42 +101,41 @@ dump_state()
 
         SDL_PenStringForGUID(guid, guid_str, 33);
 
-        printf("Pen %d: [%s] connected=%d [cap= %08x:%08x =status] '%s'\n",
-               penid.id, guid_str,
-               SDL_PenConnected(penid),
-               SDL_PenCapabilities(penid),
-               status,
-               SDL_PenName(penid)
+        SDL_Log("Pen %d: [%s] connected=%d [cap= %08x:%08x =status] '%s'\n",
+                penid.id, guid_str,
+                SDL_PenConnected(penid),
+                SDL_PenCapabilities(penid),
+                status,
+                SDL_PenName(penid)
             );
-        printf("   pos=(%.2f, %.2f), axes: ", x, y);
+        SDL_Log("   pos=(%.2f, %.2f)", x, y);
         for (k = 0; k < SDL_PEN_NUM_AXES; ++k) {
-            printf(" %.3f", axes[k]);
+            SDL_Log("   axis %d:  %.3f", k, axes[k]);
         }
-        printf("\n");
         if (SDL_PenGUIDCompare(guid, guid) != 0) {
-            printf("   ERROR: PenGUIDCompare\n");
+            SDL_Log("   ERROR: PenGUIDCompare\n");
         }
         guid2 = SDL_PenGUIDForPenID(penid);
         if (SDL_PenGUIDCompare(guid, guid2) != 0) {
-            printf("   ERROR: PenGUIDForPenID() consistency\n");
+            SDL_Log("   ERROR: PenGUIDForPenID() consistency\n");
         }
         if (SDL_PenGUIDCompare(guid, SDL_PenGUIDForString(guid_str)) != 0) {
-            printf("   ERROR: PenGUIDCompare or PenGUIDForString\n");
+            SDL_Log("   ERROR: PenGUIDCompare or PenGUIDForString\n");
         }
         if (SDL_PenIDForGUID(guid).id != penid.id) {
-            printf("   ERROR: PenIDForGUID\n");
+            SDL_Log("   ERROR: PenIDForGUID\n");
         }
 
 
         guid2.data[15] = 0;
         guid.data[15] = 1;
         if (SDL_PenGUIDCompare(guid2, guid) >= 0) {
-            printf("   ERROR: PenGUIDCompare(smaller, bigger) = %d \n",
-                   SDL_PenGUIDCompare(guid2, guid));
+            SDL_Log("   ERROR: PenGUIDCompare(smaller, bigger) = %d \n",
+                    SDL_PenGUIDCompare(guid2, guid));
         }
         if (SDL_PenGUIDCompare(guid, guid2) <= 0) {
-            printf("   ERROR: PenGUIDCompare(bigger, smaller) = %d \n",
-                   SDL_PenGUIDCompare(guid, guid2));
+            SDL_Log("   ERROR: PenGUIDCompare(bigger, smaller) = %d \n",
+                    SDL_PenGUIDCompare(guid, guid2));
         }
     }
 }
