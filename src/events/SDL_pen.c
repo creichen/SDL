@@ -22,6 +22,10 @@
 
 /* Pressure-sensitive pen handling code for SDL */
 
+#if defined(_MSC_VER) /* MSVC defines bsearch and qsort in search.h */
+#include <search.h>
+#endif /* defined(_MSC_VER) */
+#include <stdlib.h>
 #include "SDL_events_c.h"
 #include "SDL_pen.h"
 #include "SDL_pen_c.h"
@@ -35,7 +39,7 @@ static struct {
 
 static SDL_PenID pen_invalid = { SDL_PENID_ID_INVALID };
 
-static SDL_PenGUID pen_guid_error = { 0 };
+static SDL_PenGUID pen_guid_error = { { 0 } };
 
 #define PEN_LOAD(penvar, penid, err_return)              \
     SDL_Pen *penvar;                                     \
@@ -195,7 +199,7 @@ SDL_PenGCMark(void)
         SDL_Pen *pen = &pen_handler.pens[i];
         pen->flags |= SDL_PEN_FLAG_STALE;
     }
-    pen_handler.unsorted = true;
+    pen_handler.unsorted = SDL_TRUE;
 }
 
 SDL_Pen *
@@ -250,7 +254,7 @@ SDL_PenGCSweep(void (*free_deviceinfo)(void*))
           pen_handler.pens_used,
           sizeof(SDL_Pen),
           (int (*)(const void *, const void *))pen_id_compare);
-    pen_handler.unsorted = false;
+    pen_handler.unsorted = SDL_FALSE;
     /* We could test for changes in the above and send a hotplugging event here */
 }
 
@@ -308,7 +312,7 @@ SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
     }
 
     if (send_mouse_update) {
-        posted = SDL_SendMouseMotion(window, SDL_PEN_MOUSEID, 0, x, y);
+        posted = SDL_SendMouseMotion(window, SDL_PEN_MOUSEID, 0, (int) x, (int) y);
     }
     pen_update_state(pen, x, y, axes);
     return posted;
