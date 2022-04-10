@@ -38,6 +38,7 @@
 #include "SDL_quit.h"
 #include "SDL_gesture.h"
 #include "SDL_touch.h"
+#include "SDL_pen.h"
 
 #include "begin_code.h"
 /* Set up for C function definitions, even when using C++ */
@@ -543,14 +544,12 @@ typedef struct SDL_PenMotionEvent
     Uint32 type;        /**< ::SDL_PENMOTION */
     Uint32 timestamp;   /**< In milliseconds, populated using SDL_GetTicks() */
     Uint32 windowID;    /**< The window with pen focus, if any */
-    Uint32 which;       /**< The pen instance id */
-    Uint16 state;       /**< The current button state */
-    Uint8 eraser;       /**< Nonzero iff this pen is an eraser */
+    SDL_PenID which;    /**< The pen instance id */
+    Uint16 padding1;
+    Uint16 pen_state;   /**< Pen button msks (where SDL_BUTTON_LMASK is the pen tip). ::SDL_PEN_ERASER_MASK identifies if the event is from an. */
     float x;            /**< X coordinate, relative to window */
     float y;            /**< Y coordinate, relative to window */
-    float pressure;     /**< Pen pressure, normalised to the range 0..1.0 */
-    float xtilt;        /**< Pen horizontal tilt, normalised to the range -1.0..1.0 */
-    float ytilt;        /**< Pen vertical tilt, normalised to the range -1.0..1.0 */
+    float axes[SDL_PEN_NUM_AXES];   /**< Pen axes such as pressure and tilt (\link SDL_PEN_AXES \endlink) */
 } SDL_PenMotionEvent;
 
 /**
@@ -561,16 +560,13 @@ typedef struct SDL_PenButtonEvent
     Uint32 type;        /**< ::SDL_PENBUTTONDOWN or ::SDL_PENBUTTONUP */
     Uint32 timestamp;   /**< In milliseconds, populated using SDL_GetTicks() */
     Uint32 windowID;    /**< The window with pen focus, if any */
-    Uint32 which;       /**< The pen instance id */
-    Uint8 button;       /**< The pen button index */
+    SDL_PenID which;    /**< The pen instance id */
+    Uint8 button;       /**< The pen button index (1 represents the pen tip for compatibility with mouse events) */
     Uint8 state;        /**< ::SDL_PRESSED or ::SDL_RELEASED */
-    Uint8 eraser;       /**< Nonzero iff this pen is an eraser */
-    Uint8 padding1;
+    Uint16 pen_state;   /**< Pen button msks (where SDL_BUTTON_LMASK is the pen tip). ::SDL_PEN_ERASER_MASK identifies if the event is from an. */
     float x;            /**< X coordinate, relative to window */
     float y;            /**< Y coordinate, relative to window */
-    float pressure;     /**< Pen pressure, normalised to the range 0..1.0 */
-    float xtilt;        /**< Pen horizontal tilt, normalised to the range -1.0..1.0 */
-    float ytilt;        /**< Pen vertical tilt, normalised to the range -1.0..1.0 */
+    float axes[SDL_PEN_NUM_AXES]; /**< Pen axes such as pressure and tilt (\link SDL_PEN_AXES \endlink) */
 } SDL_PenButtonEvent;
 
 /**

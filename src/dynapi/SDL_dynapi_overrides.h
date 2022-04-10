@@ -865,3 +865,14 @@
 #define SDL_EncloseFPoints SDL_EncloseFPoints_REAL
 #define SDL_IntersectFRectAndLine SDL_IntersectFRectAndLine_REAL
 #define SDL_RenderGetWindow SDL_RenderGetWindow_REAL
+#define SDL_NumPens SDL_NumPens_REAL
+#define SDL_PenIDForIndex SDL_PenIDForIndex_REAL
+#define SDL_PenIDForGUID SDL_PenIDForGUID_REAL
+#define SDL_PenGUIDForPenID SDL_PenGUIDForPenID_REAL
+#define SDL_PenGUIDCompare SDL_PenGUIDCompare_REAL
+#define SDL_PenStringForGUID SDL_PenStringForGUID_REAL
+#define SDL_PenGUIDForString SDL_PenGUIDForString_REAL
+#define SDL_PenConnected SDL_PenConnected_REAL
+#define SDL_PenName SDL_PenName_REAL
+#define SDL_PenCapabilities SDL_PenCapabilities_REAL
+#define SDL_PenStatus SDL_PenStatus_REAL

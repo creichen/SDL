@@ -668,14 +668,20 @@ X11_CreateWindow(_THIS, SDL_Window * window)
 
     X11_Xinput2SelectTouch(_this, window);
 
-    X11_XSelectInput(display, w,
-                 (FocusChangeMask | EnterWindowMask | LeaveWindowMask |
-                 ExposureMask | ButtonPressMask | ButtonReleaseMask |
-                 PointerMotionMask | KeyPressMask | KeyReleaseMask |
-                 PropertyChangeMask | StructureNotifyMask |
-                 KeymapStateMask | fevent));
+    {
+        unsigned int x11_pointer_events = ButtonPressMask | ButtonReleaseMask | PointerMotionMask;
+        if (X11_Xinput2SelectMouse(_this, window)) {
+            /* If XInput2 can handle pointer events, we don't track the  */
+            x11_pointer_events = 0;
+        }
 
-    X11_PenXinput2SelectEvents(_this);
+        X11_XSelectInput(display, w,
+                         (FocusChangeMask | EnterWindowMask | LeaveWindowMask | ExposureMask |
+                          x11_pointer_events |
+                          KeyPressMask | KeyReleaseMask |
+                          PropertyChangeMask | StructureNotifyMask |
+                          KeymapStateMask | fevent));
+    }
 
     /* For _ICC_PROFILE. */
     X11_XSelectInput(display, RootWindow(display, screen), PropertyChangeMask);

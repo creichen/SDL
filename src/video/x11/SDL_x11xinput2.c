@@ -24,6 +24,7 @@
 
 #include "SDL_x11video.h"
 #include "SDL_x11xinput2.h"
+#include "SDL_x11pen.h"
 #include "../../events/SDL_events_c.h"
 #include "../../events/SDL_mouse_c.h"
 #include "../../events/SDL_pen_c.h"
@@ -76,18 +77,25 @@ xinput2_version_atleast(const int version, const int wantmajor, const int wantmi
     return ( version >= ((wantmajor * 1000) + wantminor) );
 }
 
-#if SDL_VIDEO_DRIVER_X11_XINPUT2_SUPPORTS_MULTITOUCH
-static SDL_Window *
-xinput2_get_sdlwindow(SDL_VideoData *videodata, Window window)
+static SDL_WindowData *
+xinput2_get_sdlwindowdata(SDL_VideoData *videodata, Window window)
 {
     int i;
     for (i = 0; i < videodata->numwindows; i++) {
         SDL_WindowData *d = videodata->windowlist[i];
         if (d->xwindow == window) {
-            return d->window;
+            return d;
         }
     }
     return NULL;
+}
+
+#if SDL_VIDEO_DRIVER_X11_XINPUT2_SUPPORTS_MULTITOUCH
+static SDL_Window *
+xinput2_get_sdlwindow(SDL_VideoData *videodata, Window window)
+{
+    const SDL_WindowData *windowdata = xinput2_get_sdlwindowdata(videodata, window);
+    return windowdata ? windowdata->window : NULL;
 }
 
 static void
@@ -122,7 +130,7 @@ X11_InitXinput2(_THIS)
 
     int version = 0;
     XIEventMask eventmask;
-    unsigned char mask[3] = { 0,0,0 };
+    unsigned char mask[4] = { 0, 0, 0, 0 };
     int event, err;
 
     /*
@@ -167,17 +175,22 @@ X11_InitXinput2(_THIS)
 }
 
 int
-X11_HandleXinput2Event(SDL_VideoData *videodata,XGenericEventCookie *cookie)
+X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
 {
+    SDL_VideoData *videodata = (SDL_VideoData *) _this->driverdata;
 #if SDL_VIDEO_DRIVER_X11_XINPUT2
     if(cookie->extension != xinput2_opcode) {
         return 0;
     }
-
     switch(cookie->evtype) {
+        case XI_HierarchyChanged:
+        case XI_DeviceChanged:
+            X11_InitPen(_this);
+            break;
+
         case XI_RawMotion: {
             const XIRawEvent *rawev = (const XIRawEvent*)cookie->data;
-            const SDL_X11Pen *pen = X11_FindPen(videodata, rawev->sourceid);
+            const SDL_Pen *pen = SDL_GetPen(rawev->sourceid);
             SDL_Mouse *mouse = SDL_GetMouse();
             double relative_coords[2];
             static Time prev_time = 0;
@@ -211,10 +224,10 @@ X11_HandleXinput2Event(SDL_VideoData *videodata,XGenericEventCookie *cookie)
         case XI_RawButtonPress:
         case XI_RawButtonRelease: {
             const XIRawEvent *rawev = (const XIRawEvent*)cookie->data;
-            const SDL_X11Pen *pen = X11_FindPen(videodata, rawev->sourceid);
+            const SDL_Pen *pen = SDL_GetPen(rawev->sourceid);
 
             if (pen) {
-                return 0;  /* Pens check for XI_Buttoon*   instead */
+                return 0;  /* Pens check for XI_Button* instead */
             }
 
             /* Non-pen: */
@@ -225,25 +238,39 @@ X11_HandleXinput2Event(SDL_VideoData *videodata,XGenericEventCookie *cookie)
         case XI_ButtonPress:
         case XI_ButtonRelease: {
             const XIDeviceEvent *xev = (const XIDeviceEvent *) cookie->data;
-            const SDL_X11Pen *pen = X11_FindPen(videodata, xev->sourceid);
+            const SDL_Pen *pen = SDL_GetPen(xev->deviceid);
             const int button = xev->detail;
             const SDL_bool pressed = (cookie->evtype == XI_ButtonPress) ? SDL_TRUE : SDL_FALSE;
 
             if (pen) {
                 const SDL_Mouse *mouse = SDL_GetMouse();
-                float pen_axes[SDL_PEN_NUM_AXIS];
+                float pen_axes[SDL_PEN_NUM_AXES];
 
                 X11_PenAxesFromValuators(pen,
                                          xev->valuators.values, xev->valuators.mask, xev->valuators.mask_len,
                                          pen_axes);
-                SDL_SendPenButton(mouse->focus, xev->sourceid,
-                                  pen->flags & SDL_PEN_FLAG_ERASER,
+                SDL_SendPenButton(mouse->focus, pen->id,
                                   pressed ? SDL_PRESSED : SDL_RELEASED,
                                   button,
-                                  SDL_FALSE,
+                                  SDL_TRUE,
                                   xev->event_x, xev->event_y,
                                   pen_axes);
                 return 1;
+            } else {
+                    /* Otherwise assume a regular mouse */
+                    SDL_WindowData *windowdata = xinput2_get_sdlwindowdata(videodata, xev->event);
+
+                    if (xev->deviceid != xev->sourceid) {
+                        /* Discard events from "Master" devices to avoid duplicates. */
+                        return 1;
+                    }
+
+                    if (pressed) {
+                        X11_HandleButtonPress(_this, windowdata, button,
+                                              (int) xev->event_x, (int) xev->event_y, xev->time);
+                    } else {
+                        X11_HandleButtonRelease(_this, windowdata, button);
+                    }
             }
             }
             break;
@@ -252,28 +279,26 @@ X11_HandleXinput2Event(SDL_VideoData *videodata,XGenericEventCookie *cookie)
           * so that we can distinguish real mouse motions from synthetic one.  */
         case XI_Motion: {
             const XIDeviceEvent *xev = (const XIDeviceEvent *) cookie->data;
-            const SDL_X11Pen *pen = X11_FindPen(videodata, xev->sourceid);
+            const SDL_Pen *pen = SDL_GetPen(xev->deviceid);
 #if SDL_VIDEO_DRIVER_X11_XINPUT2_SUPPORTS_MULTITOUCH
             int pointer_emulated = (xev->flags & XIPointerEmulated);
 #endif /* SDL_VIDEO_DRIVER_X11_XINPUT2_SUPPORTS_MULTITOUCH */
 
-            if (pen) {
-                float pen_axes[SDL_PEN_NUM_AXIS];
-                const SDL_Mouse *mouse = SDL_GetMouse();
+            if (xev->deviceid != xev->sourceid) {
+                /* Discard events from "Master" devices to avoid duplicates. */
+                return 1;
+            }
 
-                if (xev->deviceid != xev->sourceid) {
-                    /* ??? */
-                    return 1;
-                }
+            if (pen) {
+                float pen_axes[SDL_PEN_NUM_AXES];
+                const SDL_Mouse *mouse = SDL_GetMouse();
 
                 X11_PenAxesFromValuators(pen,
                                          xev->valuators.values, xev->valuators.mask, xev->valuators.mask_len,
                                          pen_axes);
 
-                SDL_SendPenMotion(mouse->focus,
-                                  pen->deviceid,
-                                  pen->flags & SDL_PEN_FLAG_ERASER,
-                                  SDL_FALSE,
+                SDL_SendPenMotion(mouse->focus, pen->id,
+                                  SDL_TRUE,
                                   xev->event_x, xev->event_y,
                                   pen_axes);
                 return 1;
@@ -401,6 +426,37 @@ X11_Xinput2IsInitialized()
 #else
     return 0;
 #endif
+}
+
+
+SDL_bool
+X11_Xinput2SelectMouse(_THIS, SDL_Window *window)
+{
+#if SDL_VIDEO_DRIVER_X11_XINPUT2
+    const SDL_VideoData *data = (SDL_VideoData *) _this->driverdata;
+    XIEventMask eventmask;
+    unsigned char mask[4] = { 0,0,0,0 };
+    SDL_WindowData *window_data = (SDL_WindowData*)window->driverdata;
+
+    eventmask.mask_len = sizeof(mask);
+    eventmask.mask = mask;
+    eventmask.deviceid = XIAllDevices;
+
+    XISetMask(mask, XI_ButtonPress);
+    XISetMask(mask, XI_ButtonRelease);
+    XISetMask(mask, XI_Motion);
+    /* Hotplugging: */
+    XISetMask(mask, XI_DeviceChanged);
+    XISetMask(mask, XI_HierarchyChanged);
+
+    if (X11_XISelectEvents(data->display,
+                           window_data->xwindow,
+                           &eventmask, 1) == Success) {
+        return SDL_TRUE;
+    }
+    SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "Could not enable XInput2 mouse event handling\n");
+#endif
+    return SDL_FALSE;
 }
 
 int

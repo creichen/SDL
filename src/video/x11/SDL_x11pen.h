@@ -29,43 +29,19 @@
 
 /* Pressure-sensitive pen */
 
-typedef struct SDL_X11Pen {
-    int deviceid;
-    Sint8 valuator_for_axis[SDL_PEN_NUM_AXIS]; /* SDL_PEN_AXIS_VALUATOR_MISSING if not supported */
-    Uint8 flags;  /* SDL_PEN_FLAG_* */
-    float valuator_min[SDL_PEN_NUM_AXIS];
-    float valuator_max[SDL_PEN_NUM_AXIS];
-}  SDL_X11Pen;
-
 /* Forward definition for SDL_x11video.h */
 struct SDL_VideoData;
 
-
-/* Max # of pens supported */
-#define SDL_MAX_PEN_DEVICES 4
-
-/* Flags with detail information on pens */
-#define SDL_PEN_FLAG_ERASER     (1 << 0) /* Pen is actually an eraser */
-
-#define SDL_PEN_AXIS_VALUATOR_MISSING   -1
-
-
 /* Function definitions */
 
-/* Detect XINPUT2 devices that are pens or erasers */
+/* Detect XINPUT2 devices that are pens / erasers, or update the list after hotplugging */
 extern void X11_InitPen(_THIS);
 
-/* Find pen/eraser by device ID */
-extern SDL_X11Pen * X11_FindPen(struct SDL_VideoData *videodata, int deviceid);
-
 /* Converts XINPUT2 valuators into pen axis information, including normalisation */
-extern void X11_PenAxesFromValuators(const SDL_X11Pen *pen,
+extern void X11_PenAxesFromValuators(const SDL_Pen *pen,
                                      const double *input_values, const unsigned char *mask, const int mask_len,
                                      /* out-mode parameters: */
-                                     float axis_values[SDL_PEN_NUM_AXIS]);
-
-/* Request XI_Motion, XI_ButtonPress and XIButtonRelease events for all pens */
-extern void X11_PenXinput2SelectEvents(_THIS);
+                                     float axis_values[SDL_PEN_NUM_AXES]);
 
 #endif /* SDL_VIDEO_DRIVER_X11_XINPUT2 */
 

@@ -23,19 +23,51 @@
 #ifndef SDL_pen_c_h_
 #define SDL_pen_c_h_
 
+#include "SDL_pen.h"
 #include "SDL_mouse_c.h"
 
-#  define SDL_PEN_AXIS_PRESSURE 0
-#  define SDL_PEN_AXIS_XTILT    1
-#  define SDL_PEN_AXIS_YTILT    2
-#  define SDL_PEN_AXIS_LAST     SDL_PEN_AXIS_YTILT
-#  define SDL_PEN_NUM_AXIS      (1 + SDL_PEN_AXIS_LAST)
+#define SDL_PEN_MAX_NAME 128
+
+#define SDL_PEN_FLAG_INACTIVE (1ul << 30) /* Detached (not re-registered before last SDL_PenGCSweep()) */
+#define SDL_PEN_FLAG_STALE    (1ul << 31) /* Not re-registered since last SDL_PenGCMark() */
+
+typedef struct SDL_Pen {
+    SDL_PenID id;      /* PenID determines sort order */
+    Uint32 flags;      /* capabilities */
+    SDL_PenGUID guid;
+    Uint32 last_status;
+    float last_x, last_y;
+    float last_axes[SDL_PEN_NUM_AXES];
+    char name[SDL_PEN_MAX_NAME];
+    void *deviceinfo;  /* implementation-specific information */
+} SDL_Pen;
+
+
+extern SDL_Pen * SDL_GetPen(Uint32 penid_id);
+
+/* Mark all current pens for garbage collection.
+   To handle a hotplug event in a pen implementation:
+   - SDL_PenGCMark()
+   - SDL_PenRegister() for all pens (this will retain existing state for old pens)
+   - SDL_PenGCSweep()  (will now delete all pens that were not re-registered).  */
+extern void SDL_PenGCMark(void);
+
+/* Register a pen with the pen API.
+   - If the PenID already exists, overwrite name, guid, and capabilities
+   - Otherwise initialise fresh SDL_Pen
+   The returned SDL_Pen pointer is only valid until the next call to SDL_PenGCSweep. */
+extern SDL_Pen * SDL_PenRegister(SDL_PenID id, SDL_PenGUID guid, char *name, Uint32 capabilities);
+
+/* Free memory associated with all remaining stale pens and marks them inactive.
+   Calls "free_deviceinfo" on non-NULL deviceinfo that should be deallocated. */
+extern void SDL_PenGCSweep(void (*free_deviceinfo)(void*));
+
 
 /* Send a pen motion event. Can be reported either relative to window or absolute to screen. */
-extern int SDL_SendPenMotion(SDL_Window * window, SDL_MouseID penID, SDL_bool eraser, SDL_bool is_relative, float x, float y, const float axes[SDL_PEN_NUM_AXIS]);
+extern int SDL_SendPenMotion(SDL_Window * window, SDL_PenID, SDL_bool window_relative, float x, float y, const float axes[SDL_PEN_NUM_AXES]);
 
 /* Send a pen motion event. (x,y) = (axes[0],axes[1]), axes[2:] are the SDL_PEN_NUMAXIS axes.  is_relative indicates whether window-relative or screen-absolute.. */
-extern int SDL_SendPenButton(SDL_Window * window, SDL_MouseID penID, SDL_bool eraser, Uint8 state, Uint8 button, SDL_bool is_relative, float x, float y, const float axes[SDL_PEN_NUM_AXIS]);
+extern int SDL_SendPenButton(SDL_Window * window, SDL_PenID penID, Uint8 state, Uint8 button, SDL_bool window_relative, float x, float y, const float axes[SDL_PEN_NUM_AXES]);
 
 #endif /* SDL_pen_c_h_ */
 

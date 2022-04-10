@@ -67,7 +67,6 @@
 #include "SDL_x11modes.h"
 #include "SDL_x11mouse.h"
 #include "SDL_x11opengl.h"
-#include "SDL_x11pen.h"
 #include "SDL_x11window.h"
 #include "SDL_x11vulkan.h"
 
@@ -154,11 +153,6 @@ typedef struct SDL_VideoData
     void *vulkan_xlib_xcb_library;
     PFN_XGetXCBConnection vulkan_XGetXCBConnection;
 #endif
-
-#if SDL_VIDEO_DRIVER_X11_XINPUT2
-    Uint32 num_pens;
-    SDL_X11Pen pens[SDL_MAX_PEN_DEVICES];
-#endif /* SDL_VIDEO_DRIVER_X11_XINPUT2 */
 
 } SDL_VideoData;
 

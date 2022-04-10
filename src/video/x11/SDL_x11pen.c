@@ -22,15 +22,236 @@
 
 #if SDL_VIDEO_DRIVER_X11_XINPUT2
 
+#include "SDL_pen.h"
 #include "SDL_x11video.h"
-
 #include "SDL_x11pen.h"
 #include "SDL_x11xinput2.h"
 #include "../../events/SDL_pen_c.h"
 
-#include <stdio.h>
+#define PEN_ERASER_ID_MAXLEN 256      /* Max # characters of device name to scan */
+#define PEN_ERASER_NAME_TAG "eraser"  /* String constant to identify erasers */
 
-//#define DEBUG_PEN 1
+#define DEBUG_PEN 0
+
+
+#define SDL_PEN_AXIS_VALUATOR_MISSING   -1
+
+typedef struct xinput2_pen {
+    float valuator_min[SDL_PEN_NUM_AXES];
+    float valuator_max[SDL_PEN_NUM_AXES];
+    Sint8 valuator_for_axis[SDL_PEN_NUM_AXES]; /* SDL_PEN_AXIS_VALUATOR_MISSING if not supported */
+}  xinput2_pen;
+
+
+static struct {
+    int initialized;        /* initialised to 0 */
+    Atom device_product_id;
+    Atom wacom_serial_ids;
+    Atom wacom_tool_type;
+} pen_atoms;
+
+
+static void
+pen_atoms_ensure_initialized(_THIS) {
+    SDL_VideoData *data = (SDL_VideoData *) _this->driverdata;
+
+    if (pen_atoms.initialized) {
+        return;
+    }
+    /* Create atoms if they don't exist yet to pre-empt hotplugging updates */
+    pen_atoms.device_product_id = X11_XInternAtom(data->display, "Device Product ID", False);
+    pen_atoms.wacom_serial_ids = X11_XInternAtom(data->display, "Wacom Serial IDs", False);
+    pen_atoms.wacom_tool_type = X11_XInternAtom(data->display, "Wacom Tool Type", False);
+    pen_atoms.initialized = 1;
+}
+
+void
+SDL_PenGetGUIDString(SDL_PenGUID guid, char* dest, int maxlen)
+{
+    unsigned int k;
+    size_t available = (SDL_max(0, maxlen - 1) >> 1); /* number bytes we can serialise */
+    size_t to_write = SDL_min(available, sizeof(guid.data));
+
+    for (k = 0; k < to_write; ++k) {
+        sprintf(dest + (k * 2), "%02x", guid.data[k]);
+    }
+}
+
+/* Read out an integer property and store into a preallocated Sint32 array, extending 8 and 16 bit values suitably.
+   Returns number of Sint32s written (<= max_words), or 0 on error. */
+static size_t
+xinput2_pen_get_int_property(_THIS, int deviceid, Atom property, Sint32* dest, size_t max_words)
+{
+    const SDL_VideoData *data = (SDL_VideoData *) _this->driverdata;
+    Atom type_return;
+    int format_return;
+    unsigned long num_items_return;
+    unsigned long bytes_after_return;
+    unsigned char *output;
+
+    if (property == None) {
+        return 0;
+    }
+
+    if (Success != X11_XIGetProperty(data->display, deviceid,
+                                     property,
+                                     0, max_words, False,
+                                     XA_INTEGER, &type_return, &format_return,
+                                     &num_items_return, &bytes_after_return,
+                                     &output)) {
+        return 0;
+    }
+
+    if (type_return == XA_INTEGER) {
+        int k;
+        const int to_copy = SDL_min(max_words, num_items_return);
+
+        if (format_return == 8) {
+            Sint8 *numdata = (Sint8 *) output;
+            for (k = 0; k < to_copy; ++k) {
+                dest[k] = numdata[k];
+            }
+        } else if (format_return == 16) {
+            Sint16 *numdata = (Sint16 *) output;
+            for (k = 0; k < to_copy; ++k) {
+                dest[k] = numdata[k];
+            }
+        } else {
+            SDL_memcpy(dest, output, sizeof(Sint32) * to_copy);
+        }
+        X11_XFree(output);
+        return to_copy;
+    }
+    return 0; /* type mismatch */
+}
+
+/* 32 bit vendor + device ID from evdev */
+static Uint32
+xinput2_pen_evdevid(_THIS, int deviceid)
+{
+    Sint32 ids[2];
+
+    pen_atoms_ensure_initialized(_this);
+
+    if (2 != xinput2_pen_get_int_property(_this, deviceid, pen_atoms.device_product_id, ids, 2)) {
+        return 0;
+    }
+    return ((ids[0] << 16) | (ids[1] & 0xffff));
+}
+
+
+/* Gets unique device ID (which will be shared for pen / eraser pairs) */
+static SDL_PenGUID
+xinput2_pen_get_guid(_THIS, int deviceid)
+{
+    SDL_PenGUID guid;
+    Uint32 evdevid = xinput2_pen_evdevid(_this, deviceid); /* also initialises pen_atoms  */
+
+    Uint32 guid_words_base[sizeof(guid.data) / sizeof(Uint32)];
+    Uint32 *guid_words = guid_words_base;
+    const size_t guid_words_total = sizeof(guid.data) / sizeof(Uint32);
+    Uint32 *guid_words_end = guid_words + guid_words_total;
+
+    /* pen_atoms was initialised by xinput2_pen_evdevid() earlier */
+    Atom vendor_guid_properties[] = { /* List of vendor-specific GUID sources */
+        /* Atom must not be None */
+        pen_atoms.wacom_serial_ids,
+        None /* terminator */
+    };
+    Atom *vendor_guid_it;
+
+    SDL_memset(guid_words, 0, sizeof(guid));
+
+    /* Always put the evdevid in the first four bytes */
+    *guid_words = evdevid;
+    guid_words += 1;
+
+    /* XInput2 does not offer a general-purpose GUID, so we try vendor-specific GUID information */
+    for (vendor_guid_it = vendor_guid_properties;
+         guid_words_end != guid_words /* space left? */
+             && *vendor_guid_it != None;
+         ++vendor_guid_it) {
+
+        const Atom property = *vendor_guid_it;
+        const int words_written = xinput2_pen_get_int_property(_this, deviceid, property, (Sint32 *) guid_words, guid_words_end - guid_words);
+
+        guid_words += words_written;
+    }
+
+    memcpy(guid.data, guid_words_base, sizeof(guid_words_base));
+    return guid;
+}
+
+/* Heuristically determines if device is an eraser */
+static SDL_bool
+xinput2_pen_is_eraser(_THIS, int deviceid, char* devicename)
+{
+    SDL_VideoData *data = (SDL_VideoData *) _this->driverdata;
+    char dev_name[PEN_ERASER_ID_MAXLEN];
+    int k;
+
+    pen_atoms_ensure_initialized(_this);
+
+    if (pen_atoms.wacom_tool_type != None) {
+        Atom type_return;
+        int format_return;
+        unsigned long num_items_return;
+        unsigned long bytes_after_return;
+        unsigned char *tooltype_name_info;
+
+        /* Try Wacom-specific method */
+        if (Success == X11_XIGetProperty(data->display, deviceid,
+                                         pen_atoms.wacom_tool_type,
+                                         0, 32, False,
+                                         AnyPropertyType, &type_return, &format_return,
+                                         &num_items_return, &bytes_after_return,
+                                         &tooltype_name_info)) {
+            SDL_bool result = SDL_FALSE;
+            char *tooltype_name = NULL;
+
+            if (type_return == XA_ATOM) {
+                /* Atom instead of string?  Un-intern */
+                Atom atom = *((Atom *) tooltype_name_info);
+                if (atom != None) {
+                    tooltype_name = X11_XGetAtomName(data->display, atom);
+                }
+            } else if (type_return == XA_STRING && format_return == 8) {
+                tooltype_name = (char*) tooltype_name_info;
+            }
+
+            if (0 == SDL_strcasecmp(tooltype_name, PEN_ERASER_NAME_TAG)) {
+                result = SDL_TRUE;
+            }
+            X11_XFree(tooltype_name);
+
+            return result;
+        }
+    }
+    /* Non-Wacom device? */
+
+    /* We assume that a device is an eraser if its name contains the string "eraser".
+     * Unfortunately there doesn't seem to be a clean way to distinguish these cases (as of 2022-03). */
+
+    SDL_strlcpy(dev_name, devicename, PEN_ERASER_ID_MAXLEN);
+    /* lowercase device name string so we can use strstr() */
+    for (k = 0; dev_name[k]; ++k) {
+        dev_name[k] = tolower(dev_name[k]);
+    }
+
+    return (SDL_strstr(dev_name, PEN_ERASER_NAME_TAG)) ? SDL_TRUE : SDL_FALSE;
+}
+
+static void
+xinput2_pen_free_deviceinfo(void *x11_peninfo)
+{
+    SDL_free(x11_peninfo);
+}
+
+static void
+xinput2_merge_deviceinfo(xinput2_pen *dest, xinput2_pen *src)
+{
+    *dest = *src;
+}
 
 void
 X11_InitPen(_THIS)
@@ -41,33 +262,32 @@ X11_InitPen(_THIS)
     int num_device_info;
 
     /* We assume that a device is a PEN or an ERASER if it has atom_pressure: */
-    const Atom atom_pressure = X11_XInternAtom(data->display, "Abs Pressure", 1);
-    const Atom atom_xtilt = X11_XInternAtom(data->display, "Abs Tilt X", 1);
-    const Atom atom_ytilt = X11_XInternAtom(data->display, "Abs Tilt Y", 1);
-
-    /* We assume that a device is an ERASER if it has atom_pressure and contains the string "eraser".
-     * Unfortunately there doesn't seem to be a clean way to distinguish these cases (as of 2022-03)
-     * but this hack (which is also what GDK uses) seems to work (?) */
-    static const char *eraser_name_tag = "eraser";
-
-    data->num_pens = 0;
+    const Atom atom_pressure = X11_XInternAtom(data->display, "Abs Pressure", True);
+    const Atom atom_xtilt = X11_XInternAtom(data->display, "Abs Tilt X", True);
+    const Atom atom_ytilt = X11_XInternAtom(data->display, "Abs Tilt Y", True);
 
     device_info = X11_XIQueryDevice(data->display, XIAllDevices, &num_device_info);
     if (!device_info) {
         return;
     }
+
+    SDL_PenGCMark();
+
     for (i = 0; i < num_device_info; ++i) {
         const XIDeviceInfo *dev = &device_info[i];
         int classct;
         int k;
 
         /* Check for pen or eraser and set properties suitably */
-        SDL_bool is_pen_or_eraser = SDL_FALSE;
-        struct SDL_X11Pen pen_device;
+        xinput2_pen pen_device;
+        Uint32 capabilities = 0;
 
-        pen_device.deviceid = dev->deviceid;
+        /* Only track physical devices that are enabled */
+        if (dev->use != XISlavePointer || dev->enabled == 0) {
+            continue;
+        }
 
-        for (k = 0; k < SDL_PEN_NUM_AXIS; ++k) {
+        for (k = 0; k < SDL_PEN_NUM_AXES; ++k) {
             pen_device.valuator_for_axis[k] = SDL_PEN_AXIS_VALUATOR_MISSING;
         }
 
@@ -82,9 +302,6 @@ X11_InitPen(_THIS)
                 int axis = -1;
 
                 if (vname == atom_pressure) {
-                    /* pressure-sensitive is the sole requirement for being pen or eraser */
-                    is_pen_or_eraser = SDL_TRUE;
-
                     axis = SDL_PEN_AXIS_PRESSURE;
                 } else if (vname == atom_xtilt) {
                     axis = SDL_PEN_AXIS_XTILT;
@@ -94,6 +311,7 @@ X11_InitPen(_THIS)
 
                 if (axis >= 0) {
                     Sint8 valuator_nr = val_classinfo->number;
+                    capabilities |= SDL_PEN_AXIS_CAPABILITY(axis);
 
                     pen_device.valuator_for_axis[axis] = valuator_nr;
                     pen_device.valuator_min[axis] = val_classinfo->min;
@@ -106,70 +324,53 @@ X11_InitPen(_THIS)
             }
         }
 
-        /* Success */
-        if (is_pen_or_eraser) {
-#define DEV_NAME_MAXLEN 256
-            char dev_name[DEV_NAME_MAXLEN];
+        /* We have a pen if and only if the device measures pressure */
+        if (capabilities & SDL_PEN_AXIS_PRESSURE_MASK) {
+            SDL_PenID penid = { dev->deviceid };
+            SDL_PenGUID guid = xinput2_pen_get_guid(_this, dev->deviceid);
+            SDL_Pen *pen;
+            xinput2_pen *xinput2_deviceinfo;
 
-            if (data->num_pens == SDL_MAX_PEN_DEVICES) {
-                SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "More than %d pen or eraser devices detected: not supported\n",
-                    SDL_MAX_PEN_DEVICES);
-
-                X11_XIFreeDeviceInfo(device_info);
-                return;
+            if (xinput2_pen_is_eraser(_this, dev->deviceid, dev->name)) {
+                capabilities |= SDL_PEN_ERASER_MASK;
+            } else {
+                capabilities |= SDL_PEN_INK_MASK;
             }
 
-            /* Check: is this an eraser? */
-            strncpy(dev_name, dev->name, DEV_NAME_MAXLEN - 1);
-            dev_name[DEV_NAME_MAXLEN - 1] = 0;
-#undef DEV_NAME_MAXLEN
-            for (k = 0; dev_name[k]; ++k) {
-                dev_name[k] = tolower(dev_name[k]);
-            }
-
-            pen_device.flags = 0;
-            if (SDL_strstr(dev_name, eraser_name_tag)) {
-                pen_device.flags |= SDL_PEN_FLAG_ERASER;
+            pen = SDL_PenRegister(penid, guid, dev->name, capabilities);
+            if (!pen->deviceinfo) {
+                pen->deviceinfo = xinput2_deviceinfo = SDL_malloc(sizeof(xinput2_pen));
+                SDL_memcpy(xinput2_deviceinfo, &pen_device, sizeof(xinput2_pen));
+            } else {
+                xinput2_deviceinfo = (xinput2_pen*) pen->deviceinfo;
+                xinput2_merge_deviceinfo(xinput2_deviceinfo, &pen_device);
             }
 
             /* Done collecting data, write to device info */
-            data->pens[data->num_pens++] = pen_device;
-#ifdef DEBUG_PEN
-            printf("[pen] pen #%d, deviceid=%d: %s; valuators pressure=%d, xtilt=%d, ytilt=%d\n",
-                   data->num_pens - 1,
-                   pen_device.deviceid, (pen_device.flags & SDL_PEN_FLAG_ERASER) ? "eraser" : "pen",
+#if DEBUG_PEN
+            printf("[pen] pen %d [%04x] valuators pressure=%d, xtilt=%d, ytilt=%d [%s]\n",
+                   pen->id.id, pen->flags,
                    pen_device.valuator_for_axis[SDL_PEN_AXIS_PRESSURE],
                    pen_device.valuator_for_axis[SDL_PEN_AXIS_XTILT],
-                   pen_device.valuator_for_axis[SDL_PEN_AXIS_YTILT]);
+                   pen_device.valuator_for_axis[SDL_PEN_AXIS_YTILT],
+                   pen->name);
 #endif
         }
 
     }
     X11_XIFreeDeviceInfo(device_info);
-    X11_PenXinput2SelectEvents(_this);
+
+    SDL_PenGCSweep(xinput2_pen_free_deviceinfo);
 }
 
-SDL_X11Pen *
-X11_FindPen(SDL_VideoData *videodata, int deviceid)
-{
-    int i;
-
-    // List is short enough for linear search
-    for (i = 0; i < videodata->num_pens; ++i) {
-        if (videodata->pens[i].deviceid == deviceid) {
-            return &videodata->pens[i];
-        }
-    }
-    return NULL;
-}
-
-void xinput2_normalise_pen_axes(const SDL_X11Pen *pen,
-                                /* inout-mode paramters: */
-                                float *coords) {
+static void
+xinput2_normalise_pen_axes(const xinput2_pen *pen,
+                           /* inout-mode paramters: */
+                           float *coords) {
     int axis;
 
     /* Normalise axes */
-    for (axis = 0; axis < SDL_PEN_NUM_AXIS; ++axis) {
+    for (axis = 0; axis < SDL_PEN_NUM_AXES; ++axis) {
         if (pen->valuator_for_axis[axis] != SDL_PEN_AXIS_VALUATOR_MISSING) {
             float value = coords[axis];
 
@@ -204,13 +405,14 @@ void xinput2_normalise_pen_axes(const SDL_X11Pen *pen,
 }
 
 void
-X11_PenAxesFromValuators(const SDL_X11Pen *pen,
+X11_PenAxesFromValuators(const SDL_Pen *peninfo,
                          const double *input_values, const unsigned char *mask, const int mask_len,
                          /* out-mode parameters: */
-                         float axis_values[SDL_PEN_NUM_AXIS]) {
+                         float axis_values[SDL_PEN_NUM_AXES]) {
+    const xinput2_pen *pen = (xinput2_pen *) peninfo->deviceinfo;
     int i;
 
-    for (i = 0; i < SDL_PEN_NUM_AXIS; ++i) {
+    for (i = 0; i < SDL_PEN_NUM_AXES; ++i) {
         const int valuator = pen->valuator_for_axis[i];
         if (valuator == SDL_PEN_AXIS_VALUATOR_MISSING
             || valuator >= mask_len * 8
@@ -221,38 +423,6 @@ X11_PenAxesFromValuators(const SDL_X11Pen *pen,
         }
     }
     xinput2_normalise_pen_axes(pen, axis_values);
-}
-
-void
-X11_PenXinput2SelectEvents(_THIS)
-{
-    const SDL_VideoData *data = (SDL_VideoData *) _this->driverdata;
-    int axis;
-    XIEventMask eventmask;
-    unsigned char mask[3] = { 0,0,0 };
-
-    eventmask.mask_len = sizeof(mask);
-    eventmask.mask = mask;
-
-    XISetMask(mask, XI_RawButtonPress);
-    XISetMask(mask, XI_RawButtonRelease);
-    XISetMask(mask, XI_RawMotion);
-
-    XISetMask(mask, XI_ButtonPress);
-    XISetMask(mask, XI_ButtonRelease);
-    XISetMask(mask, XI_Motion);
-
-    for (axis = 0; axis < data->num_pens; ++axis) {
-        const SDL_X11Pen *pen = &data->pens[axis];
-
-        /* Enable XI Motion and Button events for pens */
-        eventmask.deviceid = pen->deviceid;
-
-        if (X11_XISelectEvents(data->display,DefaultRootWindow(data->display), &eventmask, 1) != Success) {
-            SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "Could enable motion and button tracking for pen %d\n",
-                        pen->deviceid);
-        }
-    }
 }
 
 #endif /* SDL_VIDEO_DRIVER_X11_XINPUT2 */

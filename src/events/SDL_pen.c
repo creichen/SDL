@@ -22,15 +22,244 @@
 
 /* Pressure-sensitive pen handling code for SDL */
 
-#include "SDL_pen_c.h"
 #include "SDL_events_c.h"
+#include "SDL_pen.h"
+#include "SDL_pen_c.h"
+
+static struct {
+    SDL_Pen *pens;
+    size_t pens_allocated;
+    size_t pens_used;
+    SDL_bool unsorted; /* SDL_PenGCMark() has been called but SDL_PenGCSWeep() has not */
+} pen_handler;
+
+static SDL_PenID pen_invalid = { SDL_PENID_ID_INVALID };
+
+static SDL_PenGUID pen_guid_error = { 0 };
+
+#define PEN_LOAD(penvar, penid, err_return)              \
+    SDL_Pen *penvar;                                     \
+    if (!(SDL_PENID_VALID(penid))) {                     \
+        SDL_SetError("Invalid SDL_PenID");               \
+        return (err_return);                             \
+    }                                                    \
+    penvar = SDL_GetPen(penid.id);                       \
+    if (!(penvar)) {                                     \
+        SDL_SetError("Stale SDL_PenID");                 \
+        return (err_return);                             \
+    }                                                    \
+
+
+int
+SDL_PenGUIDCompare(SDL_PenGUID lhs, SDL_PenGUID rhs)
+{
+    return SDL_memcmp(lhs.data, rhs.data, sizeof(lhs.data));
+}
+
+static int
+pen_id_compare(const SDL_PenID *lhs, const SDL_PenID *rhs)
+{
+    return lhs->id - rhs->id;
+}
+
+SDL_Pen *
+SDL_GetPen(Uint32 penid_id)
+{
+    SDL_PenID penid = { penid_id };
+
+    if (!pen_handler.pens) {
+        return NULL;
+    }
+
+    if (pen_handler.unsorted) {
+        /* fall back to linear search */
+        int i;
+        for (i = 0; i < pen_handler.pens_used; ++i) {
+            if (pen_handler.pens[i].id.id == penid_id) {
+                return &pen_handler.pens[i];
+            }
+        }
+        return NULL;
+    }
+
+    return (SDL_Pen *) bsearch(&penid, pen_handler.pens,
+                               pen_handler.pens_used,
+                               sizeof(SDL_Pen),
+                               (int (*)(const void *, const void *))pen_id_compare);
+}
+
+int
+SDL_NumPens(void)
+{
+    return pen_handler.pens_used;
+}
+
+SDL_PenID
+SDL_PenIDForIndex(int device_index)
+{
+    if (device_index < 0 || device_index >= pen_handler.pens_used) {
+        SDL_SetError("Invalid pen index %d", device_index);
+        return pen_invalid;
+    }
+    return pen_handler.pens[device_index].id;
+}
+
+SDL_PenID
+SDL_PenIDForGUID(SDL_PenGUID guid)
+{
+    int i;
+    /* Must do linear search */
+    for (i = 0; i < pen_handler.pens_used; ++i) {
+        SDL_Pen *pen = &pen_handler.pens[i];
+
+        if (0 == SDL_PenGUIDCompare(guid, pen->guid)) {
+            return pen->id;
+        }
+    }
+    SDL_SetError("Could not find pen with specified GUID");
+    return pen_invalid;
+}
+
+SDL_bool
+SDL_PenConnected(SDL_PenID penid)
+{
+    SDL_Pen *pen;
+
+    if (!(SDL_PENID_VALID(penid))) {
+        return SDL_FALSE;
+    }
+
+    pen = SDL_GetPen(penid.id);
+    if (!pen) {
+        return SDL_FALSE;
+    }
+    return (pen->flags & SDL_PEN_FLAG_INACTIVE) ? SDL_FALSE : SDL_TRUE;
+}
+
+SDL_PenGUID
+SDL_PenGUIDForPenID(SDL_PenID penid)
+{
+    PEN_LOAD(pen, penid, pen_guid_error);
+    return pen->guid;
+}
+
+const char *
+SDL_PenName(SDL_PenID penid)
+{
+    PEN_LOAD(pen, penid, NULL);
+    return pen->name;
+}
+
+Uint32
+SDL_PenCapabilities(SDL_PenID penid)
+{
+    PEN_LOAD(pen, penid, 0u);
+    return pen->flags & ~(SDL_PEN_FLAG_STALE | SDL_PEN_FLAG_INACTIVE);
+}
+
+Uint32
+SDL_PenStatus(SDL_PenID penid, float * x, float * y, float * axes, size_t num_axes)
+{
+    PEN_LOAD(pen, penid, 0u);
+
+    if (x) {
+        *x = pen->last_x;
+    }
+    if (y) {
+        *y = pen->last_y;
+    }
+    if (axes && num_axes) {
+        size_t axes_to_copy = SDL_min(num_axes, SDL_PEN_NUM_AXES);
+        SDL_memcpy(axes, pen->last_axes, sizeof(float) * axes_to_copy);
+    }
+    return pen->last_status;
+}
+
+void
+SDL_PenStringForGUID(SDL_PenGUID guid, char *pszGUID, int cbGUID)
+{
+    SDL_JoystickGetGUIDString(guid, pszGUID, cbGUID);
+}
+
+SDL_PenGUID
+SDL_PenGUIDForString(const char *pchGUID)
+{
+    return SDL_JoystickGetGUIDFromString(pchGUID);
+}
+
+void
+SDL_PenGCMark(void)
+{
+    int i;
+    for (i = 0; i < pen_handler.pens_used; ++i) {
+        SDL_Pen *pen = &pen_handler.pens[i];
+        pen->flags |= SDL_PEN_FLAG_STALE;
+    }
+    pen_handler.unsorted = true;
+}
+
+SDL_Pen *
+SDL_PenRegister(SDL_PenID id, SDL_PenGUID guid, char *name, Uint32 capabilities)
+{
+    const size_t alloc_growth_constant = 1;  /* Expect few pens */
+
+    SDL_Pen *pen = SDL_GetPen(id.id);
+    if (!pen) {
+        if (!pen_handler.pens || pen_handler.pens_used == pen_handler.pens_allocated) {
+            size_t pens_to_allocate = pen_handler.pens_allocated + alloc_growth_constant;
+            SDL_Pen *pens;
+            if (pen_handler.pens) {
+                pens = SDL_realloc(pen_handler.pens, sizeof(SDL_Pen) * pens_to_allocate);
+                SDL_memset(pens + pen_handler.pens_used, 0,
+                           sizeof(SDL_Pen) * (pens_to_allocate - pen_handler.pens_allocated));
+            } else {
+                pens = SDL_calloc(sizeof(SDL_Pen), pens_to_allocate);
+            }
+            pen_handler.pens = pens;
+            pen_handler.pens_allocated = pens_to_allocate;
+        }
+        pen = &pen_handler.pens[pen_handler.pens_used];
+        pen_handler.pens_used += 1;
+    }
+    pen->id = id;
+    pen->flags = capabilities & (~SDL_PEN_FLAG_STALE);
+    pen->guid = guid;
+    SDL_strlcpy(pen->name, name, SDL_PEN_MAX_NAME);
+
+    return pen;
+}
+
+void
+SDL_PenGCSweep(void (*free_deviceinfo)(void*))
+{
+    int i;
+    /* We don't actually free the SDL_Pen entries, so that we can still answer queries about
+       formerly active SDL_PenIDs later.  */
+    for (i = 0; i < pen_handler.pens_used; ++i) {
+        SDL_Pen *pen = &pen_handler.pens[i];
+        if (pen->flags & SDL_PEN_FLAG_STALE) {
+            pen->flags |= SDL_PEN_FLAG_INACTIVE;
+            if (pen->deviceinfo) {
+                free_deviceinfo(pen->deviceinfo);
+                pen->deviceinfo = NULL;
+            }
+        }
+        pen->flags &= ~SDL_PEN_FLAG_STALE;
+    }
+    qsort(pen_handler.pens,
+          pen_handler.pens_used,
+          sizeof(SDL_Pen),
+          (int (*)(const void *, const void *))pen_id_compare);
+    pen_handler.unsorted = false;
+    /* We could test for changes in the above and send a hotplugging event here */
+}
 
 static void
-pen_relative_coordinates(SDL_Window *window, SDL_bool relative, float *x, float *y)
+pen_relative_coordinates(SDL_Window *window, SDL_bool window_relative, float *x, float *y)
 {
     int win_x, win_y;
 
-    if (relative) {
+    if (window_relative) {
         return;
     }
     SDL_GetWindowPosition(window, &win_x, &win_y);
@@ -38,17 +267,27 @@ pen_relative_coordinates(SDL_Window *window, SDL_bool relative, float *x, float 
     *y -= win_y;
 }
 
+static void
+pen_update_state(SDL_Pen *pen, const float x, const float y, const float axes[SDL_PEN_NUM_AXES])
+{
+    pen->last_x = x;
+    pen->last_y = y;
+    SDL_memcpy(pen->last_axes, axes, sizeof(pen->last_axes));
+}
 
 int
-SDL_SendPenMotion(SDL_Window *window, SDL_MouseID penID, SDL_bool eraser,
-                  SDL_bool is_relative,
-                  float x, float y, const float axes[SDL_PEN_NUM_AXIS])
+SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
+                  SDL_bool window_relative,
+                  float x, float y, const float axes[SDL_PEN_NUM_AXES])
 {
     const SDL_Mouse *mouse = SDL_GetMouse();
+    SDL_Pen *pen = SDL_GetPen(penid.id);
     SDL_Event event;
     SDL_bool posted;
+    /* Suppress mouse updates for axis changes or sub-pixel movement: */
+    SDL_bool send_mouse_update = ((int) x) != ((int)(pen->last_x)) || ((int) y) != ((int)(pen->last_y));
 
-    pen_relative_coordinates(window, is_relative, &x, &y);
+    pen_relative_coordinates(window, window_relative, &x, &y);
 
     if (!(SDL_IsMousePositionInWindow(mouse->focus, mouse->mouseID, (int) x, (int) y))) {
         return SDL_FALSE;
@@ -56,14 +295,11 @@ SDL_SendPenMotion(SDL_Window *window, SDL_MouseID penID, SDL_bool eraser,
 
     event.pmotion.type = SDL_PENMOTION;
     event.pmotion.windowID = mouse->focus ? mouse->focus->id : 0;
-    event.pmotion.which = penID;
-    event.pmotion.eraser = eraser;
-    event.pmotion.state = SDL_GetMouseState(NULL, NULL);
+    event.pmotion.which = penid;
+    event.pmotion.pen_state = pen->last_status | (pen->flags & (SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK));
     event.pmotion.x = x;
     event.pmotion.y = y;
-    event.pmotion.pressure = axes[SDL_PEN_AXIS_PRESSURE];
-    event.pmotion.xtilt = axes[SDL_PEN_AXIS_XTILT];
-    event.pmotion.ytilt = axes[SDL_PEN_AXIS_YTILT];
+    SDL_memcpy(event.pmotion.axes, axes, SDL_PEN_NUM_AXES * sizeof(float));
 
     posted = SDL_PushEvent(&event) > 0;
 
@@ -71,36 +307,49 @@ SDL_SendPenMotion(SDL_Window *window, SDL_MouseID penID, SDL_bool eraser,
         return SDL_FALSE;
     }
 
-    return SDL_SendMouseMotion(window, SDL_PEN_MOUSEID, 0, x, y);
+    if (send_mouse_update) {
+        posted = SDL_SendMouseMotion(window, SDL_PEN_MOUSEID, 0, x, y);
+    }
+    pen_update_state(pen, x, y, axes);
+    return posted;
+
 }
 
 int
-SDL_SendPenButton(SDL_Window *window, SDL_MouseID penID, SDL_bool eraser,
+SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
                   Uint8 state, Uint8 button,
-                  SDL_bool is_relative,
-                  float x, float y, const float axes[SDL_PEN_NUM_AXIS])
+                  SDL_bool window_relative,
+                  float x, float y, const float axes[SDL_PEN_NUM_AXES])
 {
     SDL_Mouse *mouse = SDL_GetMouse();
+    SDL_Pen *pen = SDL_GetPen(penid.id);
     SDL_Event event;
     SDL_bool posted;
 
-    pen_relative_coordinates(window, is_relative, &x, &y);
+    pen_relative_coordinates(window, window_relative, &x, &y);
 
     if (!(SDL_IsMousePositionInWindow(mouse->focus, mouse->mouseID, (int) x, (int) y))) {
         return SDL_FALSE;
     }
 
-    event.pbutton.type = state == SDL_PRESSED ? SDL_PENBUTTONDOWN : SDL_PENBUTTONUP;
+    if (state == SDL_PRESSED) {
+        event.pbutton.type = SDL_PENBUTTONDOWN;
+        pen->last_status |= (1 << (button - 1));
+    } else {
+        event.pbutton.type = SDL_PENBUTTONUP;
+        pen->last_status &= ~(1 << (button - 1));
+    }
+
+    pen_update_state(pen, x, y, axes);
+
     event.pbutton.windowID = mouse->focus ? mouse->focus->id : 0;
-    event.pbutton.which = penID;
-    event.pbutton.eraser = eraser;
+    event.pbutton.which = penid;
     event.pbutton.button = button;
     event.pbutton.state = state == SDL_PRESSED ? SDL_PRESSED : SDL_RELEASED;
+    event.pmotion.pen_state = pen->last_status | (pen->flags & (SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK));
     event.pbutton.x = x;
     event.pbutton.y = y;
-    event.pbutton.pressure = axes[SDL_PEN_AXIS_PRESSURE];
-    event.pbutton.xtilt = axes[SDL_PEN_AXIS_XTILT];
-    event.pbutton.ytilt = axes[SDL_PEN_AXIS_YTILT];
+    SDL_memcpy(event.pbutton.axes, axes, SDL_PEN_NUM_AXES * sizeof(float));
 
     posted = SDL_PushEvent(&event) > 0;
 
