@@ -242,7 +242,7 @@ xinput2_pen_is_eraser(_THIS, int deviceid, char* devicename)
 }
 
 static void
-xinput2_pen_free_deviceinfo(void *x11_peninfo)
+xinput2_pen_free_deviceinfo(Uint32 deviceid, void *x11_peninfo, void* context)
 {
     SDL_free(x11_peninfo);
 }
@@ -360,7 +360,7 @@ X11_InitPen(_THIS)
     }
     X11_XIFreeDeviceInfo(device_info);
 
-    SDL_PenGCSweep(xinput2_pen_free_deviceinfo);
+    SDL_PenGCSweep(NULL, xinput2_pen_free_deviceinfo);
 }
 
 static void

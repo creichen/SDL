@@ -18,6 +18,7 @@
      misrepresented as being the original software.
   3. This notice may not be removed or altered from any source distribution.
 */
+
 #include "../SDL_internal.h"
 
 #ifndef SDL_pen_c_h_
@@ -59,8 +60,10 @@ extern void SDL_PenGCMark(void);
 extern SDL_Pen * SDL_PenRegister(SDL_PenID id, SDL_PenGUID guid, char *name, Uint32 capabilities);
 
 /* Free memory associated with all remaining stale pens and marks them inactive.
-   Calls "free_deviceinfo" on non-NULL deviceinfo that should be deallocated. */
-extern void SDL_PenGCSweep(void (*free_deviceinfo)(void*));
+   Calls "free_deviceinfo" on non-NULL deviceinfo that should be deallocated.
+   "context" is optional and passed on to free_deviceinfo, unaltered.
+*/
+extern void SDL_PenGCSweep(void *context, void (*free_deviceinfo)(Uint32 penid_id, void* deviceinfo, void *context));
 
 
 /* Send a pen motion event. Can be reported either relative to window or absolute to screen. */
@@ -68,6 +71,7 @@ extern int SDL_SendPenMotion(SDL_Window * window, SDL_PenID, SDL_bool window_rel
 
 /* Send a pen motion event. (x,y) = (axes[0],axes[1]), axes[2:] are the SDL_PEN_NUMAXIS axes.  is_relative indicates whether window-relative or screen-absolute.. */
 extern int SDL_SendPenButton(SDL_Window * window, SDL_PenID penID, Uint8 state, Uint8 button, SDL_bool window_relative, float x, float y, const float axes[SDL_PEN_NUM_AXES]);
+
 
 #endif /* SDL_pen_c_h_ */
 

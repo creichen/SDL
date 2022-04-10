@@ -246,7 +246,7 @@ SDL_PenRegister(SDL_PenID id, SDL_PenGUID guid, char *name, Uint32 capabilities)
 }
 
 void
-SDL_PenGCSweep(void (*free_deviceinfo)(void*))
+SDL_PenGCSweep(void *context, void (*free_deviceinfo)(Uint32, void*, void*))
 {
     int i;
     /* We don't actually free the SDL_Pen entries, so that we can still answer queries about
@@ -256,7 +256,7 @@ SDL_PenGCSweep(void (*free_deviceinfo)(void*))
         if (pen->flags & SDL_PEN_FLAG_STALE) {
             pen->flags |= SDL_PEN_FLAG_INACTIVE;
             if (pen->deviceinfo) {
-                free_deviceinfo(pen->deviceinfo);
+		free_deviceinfo(pen->id.id, pen->deviceinfo, context);
                 pen->deviceinfo = NULL;
             }
         }
