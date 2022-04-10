@@ -23,8 +23,8 @@
 #ifndef SDL_pen_c_h_
 #define SDL_pen_c_h_
 
-#include "SDL_pen.h"
 #include "SDL_mouse_c.h"
+#include "../../include/SDL_pen.h"
 
 #define SDL_PEN_MAX_NAME 128
 
