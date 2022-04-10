@@ -63,11 +63,29 @@ pen_id_compare(const SDL_PenID *lhs, const SDL_PenID *rhs)
     return lhs->id - rhs->id;
 }
 
+/* binary search for pen */ /* FIXME: replace by SDL_bsearch() once available */
+static SDL_Pen*
+pen_bsearch(Uint32 penid_id, SDL_Pen *pens, size_t size)
+{
+    while (size) {
+        size_t midpoint = size >> 1;
+        Uint32 midpoint_penid_id = pens[midpoint].id.id;
+
+        if (midpoint_penid_id == penid_id) {
+            return &pens[midpoint];
+        } else if (midpoint_penid_id < penid_id) {
+            pens += midpoint + 1;
+            size -= midpoint + 1; /* mindpoint < size, since size >= 1 */
+        } else {
+            size = midpoint;
+        }
+    }
+    return NULL;
+}
+
 SDL_Pen *
 SDL_GetPen(Uint32 penid_id)
 {
-    SDL_PenID penid = { penid_id };
-
     if (!pen_handler.pens) {
         return NULL;
     }
@@ -83,10 +101,7 @@ SDL_GetPen(Uint32 penid_id)
         return NULL;
     }
 
-    return (SDL_Pen *) bsearch(&penid, pen_handler.pens,
-                               pen_handler.pens_used,
-                               sizeof(SDL_Pen),
-                               (int (*)(const void *, const void *))pen_id_compare);
+    return pen_bsearch(penid_id, pen_handler.pens, pen_handler.pens_used);
 }
 
 int
