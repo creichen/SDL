@@ -22,9 +22,6 @@
 
 /* Pressure-sensitive pen handling code for SDL */
 
-#if defined(_MSC_VER) /* MSVC defines bsearch and qsort in search.h */
-#include <search.h>
-#endif /* defined(_MSC_VER) */
 #include <stdlib.h>
 #include "SDL_events_c.h"
 #include "SDL_pen.h"
@@ -95,7 +92,7 @@ SDL_GetPen(Uint32 penid_id)
 int
 SDL_NumPens(void)
 {
-    return pen_handler.pens_used;
+    return (int) pen_handler.pens_used;
 }
 
 SDL_PenID
@@ -250,10 +247,10 @@ SDL_PenGCSweep(void (*free_deviceinfo)(void*))
         }
         pen->flags &= ~SDL_PEN_FLAG_STALE;
     }
-    qsort(pen_handler.pens,
-          pen_handler.pens_used,
-          sizeof(SDL_Pen),
-          (int (*)(const void *, const void *))pen_id_compare);
+    SDL_qsort(pen_handler.pens,
+              pen_handler.pens_used,
+              sizeof(SDL_Pen),
+              (int (*)(const void *, const void *))pen_id_compare);
     pen_handler.unsorted = SDL_FALSE;
     /* We could test for changes in the above and send a hotplugging event here */
 }
@@ -300,7 +297,7 @@ SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
     event.pmotion.type = SDL_PENMOTION;
     event.pmotion.windowID = mouse->focus ? mouse->focus->id : 0;
     event.pmotion.which = penid;
-    event.pmotion.pen_state = pen->last_status | (pen->flags & (SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK));
+    event.pmotion.pen_state = (Uint16) (pen->last_status | (pen->flags & (SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK)));
     event.pmotion.x = x;
     event.pmotion.y = y;
     SDL_memcpy(event.pmotion.axes, axes, SDL_PEN_NUM_AXES * sizeof(float));
@@ -350,7 +347,7 @@ SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
     event.pbutton.which = penid;
     event.pbutton.button = button;
     event.pbutton.state = state == SDL_PRESSED ? SDL_PRESSED : SDL_RELEASED;
-    event.pmotion.pen_state = pen->last_status | (pen->flags & (SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK));
+    event.pmotion.pen_state = (Uint16) pen->last_status | (pen->flags & (SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK));
     event.pbutton.x = x;
     event.pbutton.y = y;
     SDL_memcpy(event.pbutton.axes, axes, SDL_PEN_NUM_AXES * sizeof(float));

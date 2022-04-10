@@ -61,9 +61,9 @@ DrawScreen(SDL_Renderer *renderer)
     /* Draw a cone based on the direction the pen is leaning as if it were shining a light. */
     /* Colour derived from pens, intensity based on pressure: */
     SDL_SetRenderDrawColor(renderer,
-                           (last_button & 0x01)? 0x255 : 0,
-                           (last_button & 0x02)? 0x255 : 0,
-                           (last_button & 0x04)? 0x255 : 0,
+                           (last_button & 0x01)? 0xff : 0,
+                           (last_button & 0x02)? 0xff : 0,
+                           (last_button & 0x04)? 0xff : 0,
                            (int) (0xff));
 
     xdelta = -last_xtilt * 100;
@@ -73,9 +73,9 @@ DrawScreen(SDL_Renderer *renderer)
     SDL_RenderDrawLineF(renderer, last_x, last_y, endx, endy);
 
     SDL_SetRenderDrawColor(renderer,
-                           (last_button & 0x01)? 0x255 : 0,
-                           (last_button & 0x02)? 0x255 : 0,
-                           (last_button & 0x04)? 0x255 : 0,
+                           (last_button & 0x01)? 0xff : 0,
+                           (last_button & 0x02)? 0xff : 0,
+                           (last_button & 0x04)? 0xff : 0,
                            (int) (0xff * last_pressure));
     /* Cone base width based on pressure: */
     SDL_RenderDrawLineF(renderer, last_x, last_y, endx + (ydelta * last_pressure / 3.0), endy - (xdelta * last_pressure / 3.0));
