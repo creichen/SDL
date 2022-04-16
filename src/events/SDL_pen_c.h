@@ -24,8 +24,8 @@
 #ifndef SDL_pen_c_h_
 #define SDL_pen_c_h_
 
-#include "SDL_pen.h"
 #include "SDL_mouse_c.h"
+#include "../../include/SDL_pen.h"
 
 #define SDL_PEN_MAX_NAME 128
 
@@ -72,6 +72,7 @@ extern int SDL_SendPenMotion(SDL_Window * window, SDL_PenID, SDL_bool window_rel
 /* Send a pen motion event. (x,y) = (axes[0],axes[1]), axes[2:] are the SDL_PEN_NUMAXIS axes.  is_relative indicates whether window-relative or screen-absolute.. */
 extern int SDL_SendPenButton(SDL_Window * window, SDL_PenID penID, Uint8 state, Uint8 button, SDL_bool window_relative, float x, float y, const float axes[SDL_PEN_NUM_AXES]);
 
+extern int SDL_PenInit(void);
 
 #endif /* SDL_pen_c_h_ */
 

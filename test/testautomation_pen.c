@@ -8,8 +8,8 @@
 #include "SDL.h"
 #include "SDL_test.h"
 
-//#define SDL_internal_h_ /* Inhibit dynamic symbol redefinitions */
-//#include "../src/events/SDL_pen_c.h"
+#define SDL_internal_h_ /* Inhibit dynamic symbol redefinitions */
+#include "../src/events/SDL_pen_c.h"
 
 /* ================= Test Case Implementation ================== */
 
@@ -23,7 +23,7 @@ _pen_iterationFindsPenIDAt(SDL_PenID needle)
 {
     int i;
     for (i = 0; i < SDL_NumPens(); ++i) {
-	if (SDL_GetPen(i)->id.id == needle.id) {
+	if ((SDL_GetPenIDForIndex(i)).id == needle.id) {
 	    return i;
 	}
     }

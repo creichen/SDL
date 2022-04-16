@@ -23,9 +23,17 @@
 /* Pressure-sensitive pen handling code for SDL */
 
 #include <stdlib.h>
-#include "SDL_events_c.h"
+#include "SDL_hints.h"
 #include "SDL_pen.h"
+#include "SDL_events_c.h"
 #include "SDL_pen_c.h"
+#include "../SDL_hints_c.h"
+
+#define PEN_MOUSE_EMULATE	0	/* pen behaves like mouse */
+#define PEN_MOUSE_STATELESS	1	/* pen does not update mouse state */
+#define PEN_MOUSE_DISABLED	2	/* pen does not send mouse events */
+
+static int pen_mouse_emulation_mode = PEN_MOUSE_EMULATE;
 
 static struct {
     SDL_Pen *pens;
@@ -300,8 +308,10 @@ SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
     SDL_Pen *pen = SDL_GetPen(penid.id);
     SDL_Event event;
     SDL_bool posted;
+    float last_x = pen->last_x;
+    float last_y = pen->last_y;
     /* Suppress mouse updates for axis changes or sub-pixel movement: */
-    SDL_bool send_mouse_update = ((int) x) != ((int)(pen->last_x)) || ((int) y) != ((int)(pen->last_y));
+    SDL_bool send_mouse_update = ((int) x) != ((int)(last_x)) || ((int) y) != ((int)(last_y));
 
     pen_relative_coordinates(window, window_relative, &x, &y);
 
@@ -323,12 +333,30 @@ SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
         return SDL_FALSE;
     }
 
-    if (send_mouse_update) {
-        posted = SDL_SendMouseMotion(window, SDL_PEN_MOUSEID, 0, (int) x, (int) y);
-    }
     pen_update_state(pen, x, y, axes);
-    return posted;
 
+    if (send_mouse_update) {
+	switch (pen_mouse_emulation_mode) {
+	case PEN_MOUSE_EMULATE:
+	    return SDL_SendMouseMotion(window, SDL_PEN_MOUSEID, 0, (int) x, (int) y);
+
+	case PEN_MOUSE_STATELESS:
+	    /* Report mouse event but don't update mouse state */
+	    event.motion.windowID = event.pmotion.windowID;
+	    event.motion.which = SDL_PEN_MOUSEID;
+	    event.motion.type = SDL_MOUSEMOTION;
+	    event.motion.state = pen->last_status;
+	    event.motion.x = (int) x;
+	    event.motion.y = (int) y;
+	    event.motion.xrel = (int) (last_x - x);
+	    event.motion.yrel = (int) (last_y - y);
+	    return SDL_PushEvent(&event) > 0 ? SDL_TRUE : SDL_FALSE;
+
+	default:
+	    return SDL_TRUE;
+	}
+    }
+    return SDL_TRUE;
 }
 
 int
@@ -373,5 +401,51 @@ SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
         return SDL_FALSE;
     }
 
-    return SDL_SendMouseButton(window, SDL_PEN_MOUSEID, state, button);
+    switch (pen_mouse_emulation_mode) {
+    case PEN_MOUSE_EMULATE:
+	return SDL_SendMouseButton(window, SDL_PEN_MOUSEID, state, button);
+
+    case PEN_MOUSE_STATELESS:
+        /* Report mouse event without updating mouse state */
+        event.button.windowID = event.pbutton.windowID;
+        event.button.type = state == SDL_PRESSED ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+        event.button.which = SDL_PEN_MOUSEID;
+        event.button.state = state;
+        event.button.button = button;
+        event.button.clicks = 1;
+        event.button.x = (int) x;
+        event.button.y = (int) y;
+        return SDL_PushEvent(&event) > 0;
+	break;
+
+    default:
+	return SDL_TRUE;
+    }
+}
+
+static void
+SDL_PenUpdateHint(void *userdata, const char *name, const char *oldvalue, const char *newvalue)
+{
+    if (newvalue == NULL) {
+	return;
+    }
+
+    if (0 == SDL_strcmp("2", newvalue)) {
+	pen_mouse_emulation_mode = PEN_MOUSE_DISABLED;
+    } else if (0 == SDL_strcmp("1", newvalue)) {
+	pen_mouse_emulation_mode = PEN_MOUSE_STATELESS;
+    } else if (0 == SDL_strcmp("0", newvalue)) {
+	pen_mouse_emulation_mode = PEN_MOUSE_EMULATE;
+    } else {
+	SDL_Log("Unexpected value for %s: '%s'", SDL_HINT_PEN_NOT_MOUSE, newvalue);
+    }
+}
+
+int
+SDL_PenInit(void)
+{
+    SDL_AddHintCallback(SDL_HINT_PEN_NOT_MOUSE,
+			SDL_PenUpdateHint, NULL);
+
+    return 0;
 }

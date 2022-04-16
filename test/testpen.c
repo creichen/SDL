@@ -44,11 +44,12 @@ DrawScreen(SDL_Renderer *renderer)
 
     /* Mark screen position for pen */
     if (last_was_eraser) {
-        SDL_Rect rect = {
-            .x = last_x - 10,
-            .y = last_y - 10,
-            .w = 21,
-            .h = 21 };
+        SDL_Rect rect;
+
+        rect.x = last_x - 10;
+        rect.y = last_y - 10;
+        rect.w = 21;
+        rect.h = 21;
 
         SDL_SetRenderDrawColor(renderer, 0x00, 0xff, 0xff, 0xff);
         SDL_RenderFillRect(renderer, &rect);
@@ -126,7 +127,6 @@ dump_state()
             SDL_Log("   ERROR: PenIDForGUID\n");
         }
 
-
         guid2.data[15] = 0;
         guid.data[15] = 1;
         if (SDL_PenGUIDCompare(guid2, guid) >= 0) {
@@ -153,6 +153,23 @@ process_event(SDL_Event event)
     case SDL_MOUSEMOTION:
     case SDL_MOUSEBUTTONDOWN:
     case SDL_MOUSEBUTTONUP:
+#if VERBOSE
+    {   int x, y;
+	SDL_GetMouseState(&x, &y);
+	if (event.type == SDL_MOUSEMOTION) {
+	    SDL_Log("mouse motion: mouse ID %d is at %d,%d  (state: %d,%d) delta (%d, %d)\n",
+		    event.motion.which,
+		    event.motion.x, event.motion.y,
+		    event.motion.xrel, event.motion.yrel,
+		    x, y);
+	} else {
+	    SDL_Log("mouse button: mouse ID %d is at %d,%d  (state: %d,%d)\n",
+		    event.button.which,
+		    event.button.x, event.button.y,
+		    x, y);
+	}
+    }
+#endif
         if (event.motion.which != SDL_PEN_MOUSEID) {
             SDL_ShowCursor(SDL_ENABLE);
         }
