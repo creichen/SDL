@@ -10,8 +10,74 @@
 
 #define SDL_internal_h_ /* Inhibit dynamic symbol redefinitions */
 #include "../src/events/SDL_pen_c.h"
+#include "../src/events/SDL_pen.c"
 
-/* ================= Test Case Implementation ================== */
+/* ================= Internal SDL API Compatibility ================== */
+/* Mock implementations of Pen -> Mouse calls */
+/* Not thread-safe! */
+
+/* "standard" pen registration process */
+SDL_Pen *
+_pen_register(SDL_PenID penid, SDL_PenGUID guid, char *name, Uint32 flags)
+{
+    SDL_Pen *pen = SDL_PenModifyBegin(penid.id);
+    pen->guid = guid;
+    SDL_strlcpy(pen->name, name, SDL_PEN_MAX_NAME);
+    SDL_PenModifyAddCapabilities(pen, flags);
+    return pen;
+}
+
+SDL_bool
+SDL_IsMousePositionInWindow(SDL_Window * window, SDL_MouseID mouseID, int x, int y)
+{
+    return SDL_TRUE;
+}
+
+static int _mouseemu_last_event = 0;
+static int _mouseemu_last_x = 0;
+static int _mouseemu_last_y = 0;
+static int _mouseemu_last_mouseid = 0;
+static int _mouseemu_last_button = 0;
+static int _mouseemu_last_relative = 0;
+
+int
+SDL_SendMouseButton(SDL_Window * window, SDL_MouseID mouseID, Uint8 state, Uint8 button)
+{
+    if (mouseID == SDL_PEN_MOUSEID) {
+        _mouseemu_last_event = (state == SDL_PRESSED) ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+        _mouseemu_last_button = button;
+        _mouseemu_last_mouseid = mouseID;
+    }
+    return 1;
+}
+
+int
+SDL_SendMouseMotion(SDL_Window * window, SDL_MouseID mouseID, int relative, int x, int y)
+{
+    if (mouseID == SDL_PEN_MOUSEID) {
+        _mouseemu_last_event = SDL_MOUSEMOTION;
+        _mouseemu_last_x = x;
+        _mouseemu_last_y = y;
+        _mouseemu_last_mouseid = mouseID;
+        _mouseemu_last_relative = relative;
+    }
+    return 1;
+}
+
+
+SDL_Mouse *
+SDL_GetMouse(void)
+{
+    static SDL_Mouse dummy_mouse;
+
+    dummy_mouse.focus = NULL;
+    dummy_mouse.mouseID = 0;
+
+    return &dummy_mouse;
+}
+
+
+/* ================= Test Case Support ================== */
 
 #define PEN_NUM_TEST_IDS 8
 
@@ -23,11 +89,22 @@ _pen_iterationFindsPenIDAt(SDL_PenID needle)
 {
     int i;
     for (i = 0; i < SDL_NumPens(); ++i) {
-	if ((SDL_GetPenIDForIndex(i)).id == needle.id) {
-	    return i;
-	}
+        SDL_PenID pen_id = SDL_PenIDForIndex(i);
+        if (pen_id.id == needle.id) {
+            return i;
+        }
     }
     return -1;
+}
+
+/* Assert number of pens is as expected */
+static void
+_AssertCheck_num_pens(int expected, char *location)
+{
+    int num_pens = SDL_NumPens();
+    SDLTest_AssertCheck(expected == num_pens,
+                        "Expected SDL_NumPens() == %d, actual = %d: %s", expected, num_pens, location);
+
 }
 
 /* ---------------------------------------- */
@@ -39,25 +116,26 @@ typedef struct {  /* Collection of pen (de)allocation information  */
     SDL_PenID ids[PEN_NUM_TEST_IDS];
     SDL_PenGUID guids[PEN_NUM_TEST_IDS];
     int num_ids;
+    int initial_pen_count;
 } pen_testdata;
 
 /* SDL_PenGCSweep(): callback for tracking pen deallocation */
 static void
 _pen_testdata_callback(Uint32 deviceid, void *deviceinfo, void *tracker_ref)
 {
-    pen_testdata *tracker = (pen_testdata *) tracker;
+    pen_testdata *tracker = (pen_testdata *) tracker_ref;
     int offset = -1;
     int i;
 
     for (i = 0; i < tracker->num_ids; ++i) {
-	if (deviceid == tracker->ids[i].id) {
-	    tracker->deallocated_id_flags |= (1 << i);
-	}
+        if (deviceid == tracker->ids[i].id) {
+            tracker->deallocated_id_flags |= (1 << i);
+        }
     }
 
-    SDLTest_AssertCheck(deviceinfo != NULL, "Device %d did not have deviceinfo", deviceid);
+    SDLTest_AssertCheck(deviceinfo != NULL, "Device %d has deviceinfo", deviceid);
     offset = *((int*)deviceinfo);
-    SDLTest_AssertCheck(offset >= 0 && offset <= 31, "Device %d had bad deviceinfo %d", deviceid, offset);
+    SDLTest_AssertCheck(offset >= 0 && offset <= 31, "Device %d has well-formed deviceinfo %d", deviceid, offset);
     tracker->deallocated_deviceinfo_flags |= 1 << offset;
     SDL_free(deviceinfo);
 }
@@ -79,33 +157,43 @@ _pen_unusedIDs(pen_testdata *tracker, int count)
     int index = 0;
 
     tracker->num_ids = count;
-    SDLTest_AssertCheck(count < PEN_NUM_TEST_IDS, "Test setup bug: Invalid number of test IDs requested: %d", (int) count);
+    SDLTest_AssertCheck(count < PEN_NUM_TEST_IDS, "Test setup: Valid number of test IDs requested: %d", (int) count);
 
     while (count--) {
-	int k;
+        int k;
 
-	while (SDL_GetPen(synthetic_penid)) {
-	    ++synthetic_penid;
-	}
-	tracker->ids[index].id = synthetic_penid;
-	for (k = 0; k < 16; ++k) {
-	    tracker->guids[index].data[k] = (16 * k) + index;
-	}
+        while (SDL_GetPen(synthetic_penid)) {
+            ++synthetic_penid;
+        }
+        tracker->ids[index].id = synthetic_penid;
+        for (k = 0; k < 16; ++k) {
+            tracker->guids[index].data[k] = (16 * k) + index;
+        }
 
-	++synthetic_penid;
-	++index;
+        ++synthetic_penid;
+        ++index;
     }
 }
+
+#define DEVICEINFO_UNCHANGED -17
 
 /* Allocate deviceinfo for pen */
 static void
 _pen_setDeviceinfo(SDL_Pen *pen, int deviceinfo)
 {
-    int *data = (int *) SDL_malloc(sizeof(int));
-    *data = deviceinfo;
-    SDLTest_AssertCheck(pen->deviceinfo == NULL, "pen->deviceinfo was not NULL for %p (%d) when requesting deviceinfo %d",
-			pen, pen->id.id, deviceinfo);
-    pen->deviceinfo = data;
+    if (deviceinfo == DEVICEINFO_UNCHANGED) {
+        SDLTest_AssertCheck(pen->deviceinfo != NULL, "pen->deviceinfo was already set for %p (%d), as expected",
+                            pen, pen->header.id.id);
+    } else {
+        int *data = (int *) SDL_malloc(sizeof(int));
+        *data = deviceinfo;
+
+        SDLTest_AssertCheck(pen->deviceinfo == NULL, "pen->deviceinfo was NULL for %p (%d) when requesting deviceinfo %d",
+                            pen, pen->header.id.id, deviceinfo);
+
+        pen->deviceinfo = data;
+    }
+    SDL_PenModifyEnd(pen, SDL_TRUE);
 }
 
 /* ---------------------------------------- */
@@ -134,7 +222,7 @@ _pen_accumulate_gc_sweep(Uint32 deviceid, void* deviceinfo, void *backup_ref)
 static void
 _pen_assert_impossible(Uint32 deviceid, void* deviceinfo, void *backup_ref)
 {
-    SDLTest_AssertCheck(0, "Deallocation during enableAndRestore: not expected");
+    SDLTest_AssertCheck(0, "Deallocation for deviceid %d during enableAndRestore: not expected", deviceid);
 }
 
 /* Disable all pens and store their status */
@@ -150,28 +238,286 @@ _pen_disableAndBackup(void)
 
 /* Restore all pens to their previous status */
 static void
-_pen_enableAndRestore(deviceinfo_backup *backup)
+_pen_enableAndRestore(deviceinfo_backup *backup, int test_marksweep)
 {
-    SDL_PenGCMark();
-    while (backup) {
-	SDL_Pen *disabledpen = SDL_GetPen(backup->deviceid);
-
-	SDL_PenRegister(disabledpen->id, disabledpen->guid, disabledpen->name, disabledpen->flags);
-	disabledpen->deviceinfo = backup->deviceinfo;
-
-	deviceinfo_backup *next = backup->next;
-	SDL_free(backup);
-	backup = next;
+    if (test_marksweep) {
+        SDL_PenGCMark();
     }
+    while (backup) {
+        SDL_Pen *disabledpen = SDL_GetPen(backup->deviceid);
 
-    SDL_PenGCSweep(NULL, _pen_assert_impossible);
+        SDL_PenModifyEnd(SDL_PenModifyBegin(disabledpen->header.id.id),
+                         SDL_TRUE);
+        disabledpen->deviceinfo = backup->deviceinfo;
+
+        deviceinfo_backup *next = backup->next;
+        SDL_free(backup);
+        backup = next;
+    }
+    if (test_marksweep){
+        SDL_PenGCSweep(NULL, _pen_assert_impossible);
+    }
 }
 
+
 /* ---------------------------------------- */
-/* Test case functions */
+/* Default set-up and tear down routines    */
+
+/* Back up existing pens, allocate fresh ones but don't assign them yet */
+static deviceinfo_backup*
+_setup_test(pen_testdata *ptest, int pens_for_testing)
+{
+    int i;
+    deviceinfo_backup *backup;
+
+    ptest->initial_pen_count = SDL_NumPens();
+
+    /* Grab unused pen IDs for testing */
+    _pen_unusedIDs(ptest, pens_for_testing);
+    for (i = 0; i < pens_for_testing; ++i) {
+        int index = _pen_iterationFindsPenIDAt(ptest->ids[i]);
+        SDLTest_AssertCheck(-1 == index,
+                           "Registered PenID(%d) since index %d == -1", ptest->ids[i].id, index);
+    }
+
+    /* Remove existing pens, but back up */
+    backup = _pen_disableAndBackup();
+
+    _AssertCheck_num_pens(0, "after disabling and backing up all current pens");
+    SDLTest_AssertPass("Removed existing pens");
+
+    return backup;
+}
+
+static void
+_teardown_test_general(pen_testdata *ptest, deviceinfo_backup *backup, int with_gc_test)
+{
+    /* Restore previously existing pens */
+    _pen_enableAndRestore(backup, with_gc_test);
+
+    /* validate */
+    SDLTest_AssertPass("Restored pens to pre-test state");
+    _AssertCheck_num_pens(ptest->initial_pen_count, "after restoring all initial pens");
+}
+
+static void
+_teardown_test(pen_testdata *ptest, deviceinfo_backup *backup)
+{
+    _teardown_test_general(ptest, backup, 0);
+}
+
+static void
+_teardown_test_with_gc(pen_testdata *ptest, deviceinfo_backup *backup)
+{
+    _teardown_test_general(ptest, backup, 1);
+}
+
+
+/* ---------------------------------------- */
+/* Pen simulation                           */
+
+#define SIMPEN_ACTION_DONE           0
+#define SIMPEN_ACTION_MOVE_X         1
+#define SIMPEN_ACTION_MOVE_Y         2
+#define SIMPEN_ACTION_AXIS           3
+#define SIMPEN_ACTION_MOTION_EVENT   4
+#define SIMPEN_ACTION_PRESS          5 /* implicit update event */
+#define SIMPEN_ACTION_RELEASE        6 /* implicit update event */
+#define SIMPEN_ACTION_ERASER_MODE    7
+
+/* Individual action in pen simulation script */
+typedef struct simulated_pen_action {
+    int type;
+    int pen_index;   /* index into the list of simulated pens */
+    int index;       /* button or axis number, if needed */
+    float update;    /* x,y; for AXIS, update[0] is the updated axis */
+} simulated_pen_action;
+
+static simulated_pen_action
+_simpen_event(int type, int pen_index, int index, float v, int line_nr) {
+    simulated_pen_action action;
+    action.type = type;
+    action.pen_index = pen_index;
+    action.index = index;
+    action.update = v;
+
+    /* Sanity check-- turned out to be necessary */
+    if ((type == SIMPEN_ACTION_PRESS || type == SIMPEN_ACTION_RELEASE)
+        && index == 0) {
+        fprintf(stderr, "Error: SIMPEN_EVENT_BUTTON must have button > 0  (LMB is button 1!), in line %d!\n", line_nr);
+        exit(1);
+    }
+    return action;
+}
+
+#define SIMPEN_DONE()                                   \
+    _simpen_event(SIMPEN_ACTION_DONE, 0, 0, 0.0f, __LINE__)
+#define SIMPEN_MOVE(pen_index, x, y)                                    \
+    _simpen_event(SIMPEN_ACTION_MOVE_X, (pen_index), 0, (x), __LINE__), \
+        _simpen_event(SIMPEN_ACTION_MOVE_Y, (pen_index), 0, (y), __LINE__)
+
+#define SIMPEN_AXIS(pen_index, axis, y)                         \
+    _simpen_event(SIMPEN_ACTION_AXIS, (pen_index), (axis), (y), __LINE__)
+
+#define SIMPEN_EVENT_MOTION(pen_index)                                  \
+    _simpen_event(SIMPEN_ACTION_MOTION_EVENT, (pen_index), 0, 0.0f, __LINE__)
+
+#define SIMPEN_EVENT_BUTTON(pen_index, push, button)                    \
+    _simpen_event((push) ? SIMPEN_ACTION_PRESS : SIMPEN_ACTION_RELEASE, (pen_index), (button), 0.0f, __LINE__)
+
+#define SIMPEN_SET_ERASER(pen_index, eraser_mode)                       \
+    _simpen_event(SIMPEN_ACTION_ERASER_MODE, (pen_index), eraser_mode, 0.0f, __LINE__)
+
+
+static void
+_pen_dump(SDL_Pen *pen)
+{
+    int i;
+
+    if (!pen) {
+        fprintf(stderr, "(NULL pen)\n");
+        return;
+    }
+
+    fprintf(stderr, "pen %d (%s): status=%04x, flags=%x, x,y=(%f, %f) axes = ",
+            pen->header.id.id, pen->name, pen->last.buttons,
+            pen->header.flags, pen->last.x, pen->last.y);
+    for (i = 0; i < SDL_PEN_NUM_AXES; ++i) {
+        fprintf(stderr, "\t%f", pen->last.axes[i]);
+    }
+    fprintf(stderr, "\n");
+}
+
+/* Runs until the next event has been issued or we are done and returns pointer to it.
+   Returns NULL once we hit SIMPEN_ACTION_DONE.
+   Updates simulated_pens accordingly.  There must be as many simulated_pens as the highest pen_index used in
+   any of the "steps".
+   Also validates the internal state with expectations (via SDL_PenStatus()) and updates the, but does not poll SDL events. */
+static simulated_pen_action *
+_pen_simulate(simulated_pen_action *steps, int *step_counter, SDL_Pen *simulated_pens, int num_pens)
+{
+    SDL_bool done = SDL_FALSE;
+    SDL_bool dump_pens = SDL_FALSE;
+    unsigned int mask;
+    int pen_nr;
+
+    do {
+        simulated_pen_action step = steps[*step_counter];
+        SDL_Pen *simpen = &simulated_pens[step.pen_index];
+
+        if (step.pen_index >= num_pens) {
+            SDLTest_AssertCheck(0,
+                                "Unexpected pen index %d at step %d, action %d", step.pen_index, *step_counter, step.type);
+            return SDL_FALSE;
+        }
+
+        switch (step.type) {
+        case SIMPEN_ACTION_DONE:
+            SDLTest_AssertPass("SIMPEN_ACTION_DONE");
+            return SDL_FALSE;
+
+        case SIMPEN_ACTION_MOVE_X:
+            SDLTest_AssertPass("SIMPEN_ACTION_MOVE_X [pen %d] : y <- %f", step.pen_index, step.update);
+            simpen->last.x = step.update;
+            break;
+
+        case SIMPEN_ACTION_MOVE_Y:
+            SDLTest_AssertPass("SIMPEN_ACTION_MOVE_Y [pen %d] : x <- %f", step.pen_index, step.update);
+            simpen->last.y = step.update;
+            break;
+
+        case SIMPEN_ACTION_AXIS:
+            SDLTest_AssertPass("SIMPEN_ACTION_AXIS [pen %d] : axis[%d] <- %f", step.pen_index, step.index, step.update);
+            simpen->last.axes[step.index] = step.update;
+            break;
+
+        case SIMPEN_ACTION_MOTION_EVENT:
+            SDLTest_AssertCheck(SDL_SendPenMotion(NULL, simpen->header.id, SDL_TRUE,
+                                                  &simpen->last),
+                                "SIMPEN_ACTION_MOTION_EVENT [pen %d]", step.pen_index);
+            done = true;
+            break;
+
+        case SIMPEN_ACTION_PRESS:
+            mask = (1 << (step.index - 1));
+            simpen->last.buttons |= mask;
+            SDLTest_AssertCheck(SDL_SendPenButton(NULL, simpen->header.id, SDL_PRESSED, step.index),
+                                "SIMPEN_ACTION_PRESS [pen %d]: button %d (mask %x)", step.pen_index, step.index, mask);
+            done = true;
+            break;
+
+        case SIMPEN_ACTION_RELEASE:
+            mask = ~(1 << (step.index - 1));
+            simpen->last.buttons &= mask;
+            SDLTest_AssertCheck(SDL_SendPenButton(NULL, simpen->header.id, SDL_RELEASED, step.index),
+                                "SIMPEN_ACTION_RELEASE [pen %d]: button %d (mask %x)", step.pen_index, step.index, mask);
+            done = true;
+            break;
+
+        default:
+            SDLTest_AssertCheck(0,
+                                "Unexpected pen simulation action %d", step.type);
+            return SDL_FALSE;
+        }
+        ++(*step_counter);
+    } while (!done);
+
+    for (pen_nr = 0; pen_nr < num_pens; ++pen_nr) {
+        SDL_Pen *simpen = &simulated_pens[pen_nr];
+        float x, y;
+        float axes[SDL_PEN_NUM_AXES];
+        Uint32 actual_flags = SDL_PenStatus(simpen->header.id, &x, &y, axes, SDL_PEN_NUM_AXES);
+        int i;
+
+        if (simpen->last.x != x || simpen->last.y != y) {
+            SDLTest_AssertCheck(0, "Coordinate mismatch in pen %d", pen_nr);
+            dump_pens = SDL_TRUE;
+        }
+        if ((actual_flags & ~(SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK)) != (simpen->last.buttons & ~(SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK))) {
+            SDLTest_AssertCheck(0, "Status mismatch in pen %d (reported: %08x)", pen_nr, actual_flags);
+            dump_pens = SDL_TRUE;
+        }
+        if ((actual_flags & (SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK)) != (simpen->header.flags & (SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK))) {
+            SDLTest_AssertCheck(0, "Flags mismatch in pen %d (reported: %08x)", pen_nr, actual_flags);
+            dump_pens = SDL_TRUE;
+        }
+        for (i = 0; i < SDL_PEN_NUM_AXES; ++i) {
+            if (axes[i] != simpen->last.axes[i]) {
+                SDLTest_AssertCheck(0, "Axis %d mismatch in pen %d", pen_nr, i);
+                dump_pens = SDL_TRUE;
+            }
+        }
+    }
+
+    if (dump_pens) {
+        int i;
+        for (i = 0; i < num_pens; ++i) {
+            fprintf(stderr, "==== pen #%d\n", i);
+            fprintf(stderr, "expect:\t");
+            _pen_dump(simulated_pens + i);
+            fprintf(stderr, "actual:\t");
+            _pen_dump(SDL_GetPen(simulated_pens[i].header.id.id));
+        }
+    }
+
+    return &steps[(*step_counter) - 1];
+}
+
+/* Init simulated_pens with suitable initial state */
+static void
+_pen_simulate_init(pen_testdata *ptest, SDL_Pen *simulated_pens, int num_pens)
+{
+    int i;
+    for (i = 0; i < num_pens; ++i) {
+        simulated_pens[i] = *SDL_GetPen(ptest->ids[i].id);
+    }
+}
+
+/* ================= Test Case Implementation ================== */
+
 
 /**
- * @brief Check basic pen device introduction and iteration
+ * @brief Check basic pen device introduction and iteration, as well as basic queries
  *
  * @sa SDL_NumPens, SDL_PenIDForIndex, SDL_PenName, SDL_PenCapabilities
  */
@@ -179,38 +525,24 @@ static int
 pen_iteration(void *arg)
 {
     pen_testdata ptest;
-    int initial_pen_count;
     int i;
-    deviceinfo_backup *backup;
     char long_pen_name[SDL_PEN_MAX_NAME + 10];
     const char *name;
+    deviceinfo_backup *backup;
 
     /* Check initial pens */
     SDL_PumpEvents();
-    initial_pen_count = SDL_NumPens();
-    SDLTest_AssertPass("SDL_NumPens() = %d", initial_pen_count);
+    SDLTest_AssertPass("SDL_NumPens() = %d", SDL_NumPens());
 
     /* Grab unused pen IDs for testing */
-    _pen_unusedIDs(&ptest, 3);
-    for (i = 0; i < 3; ++i) {
-	int index = _pen_iterationFindsPenIDAt(ptest.ids[i]);
-	SDLTest_AssertCheck(-1 == index,
-			   "Unexpectedly registered PenID(%d) found at index %d", ptest.ids[i].id, index);
-    }
-
-    /* Remove existing pens, but back up */
-    backup = _pen_disableAndBackup();
-    SDLTest_AssertCheck(0 == SDL_NumPens(),
-			"Expected SDL_NumPens() == 0 after disabling and backing up all");
-    SDLTest_AssertPass("Removed existing pens");
+    backup = _setup_test(&ptest, 3); /* validates that we have zero pens */
 
     /* Re-run GC, track deallocations */
     SDL_PenGCMark();
     _pen_trackGCSweep(&ptest);
-    SDLTest_AssertCheck(0 == SDL_NumPens(),
-			"Expected SDL_NumPens() == 0 after second GC pass");
-    SDLTest_AssertCheck(ptest.deallocated_id_flags == 0, "Unexpected device deallocation");
-    SDLTest_AssertCheck(ptest.deallocated_deviceinfo_flags == 0, "Unexpected deviceinfo deallocation");
+    _AssertCheck_num_pens(0, "after second GC pass");
+    SDLTest_AssertCheck(ptest.deallocated_id_flags == 0, "No unexpected device deallocations");
+    SDLTest_AssertCheck(ptest.deallocated_deviceinfo_flags == 0, "No unexpected deviceinfo deallocations");
     SDLTest_AssertPass("Validated that GC on empty pen set is idempotent");
 
     /* Add three pens, validate */
@@ -219,93 +551,175 @@ pen_iteration(void *arg)
     SDL_memset(long_pen_name, 'x', sizeof(long_pen_name));     /* Include pen name that is too long */
     long_pen_name[sizeof(long_pen_name) - 1] = 0;
 
-    _pen_setDeviceinfo(SDL_PenRegister(ptest.ids[0], ptest.guids[0], "pen 0",
-				       SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK),
-		       16);
-    _pen_setDeviceinfo(SDL_PenRegister(ptest.ids[2], ptest.guids[2], long_pen_name,
-				       SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT_MASK),
-		       20);
-    _pen_setDeviceinfo(SDL_PenRegister(ptest.ids[1], ptest.guids[1], "pen 1",
-				       SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_YTILT_MASK),
-		       24);
+    _pen_setDeviceinfo(_pen_register(ptest.ids[0], ptest.guids[0], "pen 0",
+                                       SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK),
+                       16);
+    _pen_setDeviceinfo(_pen_register(ptest.ids[2], ptest.guids[2], long_pen_name,
+                                       SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT_MASK),
+                       20);
+    _pen_setDeviceinfo(_pen_register(ptest.ids[1], ptest.guids[1], "pen 1",
+                                       SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_YTILT_MASK),
+                       24);
     _pen_trackGCSweep(&ptest);
 
-    SDLTest_AssertCheck(SDL_NumPens() == 0,
-			"Expected SDL_NumPens() == 0 after second GC pass");
-    SDLTest_AssertCheck(ptest.deallocated_id_flags == 0, "Unexpected device deallocation");
-    SDLTest_AssertCheck(ptest.deallocated_deviceinfo_flags == 0, "Unexpected deviceinfo deallocation");
+    _AssertCheck_num_pens(3, "after allocating three pens");
 
-    SDLTest_AssertCheck(3 == SDL_NumPens(),
-			"Expected SDL_NumPens() == 3 after allocation");
+    SDLTest_AssertCheck(ptest.deallocated_id_flags == 0, "No unexpected device deallocations");
+    SDLTest_AssertCheck(ptest.deallocated_deviceinfo_flags == 0, "No unexpected deviceinfo deallocations");
 
     for (i = 0; i < 3; ++i) {
-	/* Check that all pens are accounted for */
-	int index = _pen_iterationFindsPenIDAt(ptest.ids[i]);
-	SDLTest_AssertCheck(-1 != index,  "Could not find PenID(%d)", ptest.ids[i].id);
+        /* Check that all pens are accounted for */
+        int index = _pen_iterationFindsPenIDAt(ptest.ids[i]);
+        SDLTest_AssertCheck(-1 != index,  "Found PenID(%d)", ptest.ids[i].id);
     }
     SDLTest_AssertPass("Validated that all three pens are indexable");
 
     /* Check pen properties */
     SDLTest_AssertCheck(0 == SDL_strcmp("pen 0", SDL_PenName(ptest.ids[0])),
-			"Pen #0 name");
-    SDLTest_AssertCheck((SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK) == SDL_PenCapabilities(ptest.ids[0]),
-			"Pen #0 capabilities");
+                        "Pen #0 name");
+    SDLTest_AssertCheck((SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK) == SDL_PenCapabilities(ptest.ids[0], NULL),
+                        "Pen #0 capabilities");
 
     SDLTest_AssertCheck(0 == SDL_strcmp("pen 1", SDL_PenName(ptest.ids[1])),
-			"Pen #1 name");
-    SDLTest_AssertCheck((SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_YTILT_MASK) == SDL_PenCapabilities(ptest.ids[1]),
-			"Pen #1 capabilities");
+                        "Pen #1 name");
+    SDLTest_AssertCheck((SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_YTILT_MASK) == SDL_PenCapabilities(ptest.ids[1], NULL),
+                        "Pen #1 capabilities");
 
     name = SDL_PenName(ptest.ids[2]);
     SDLTest_AssertCheck(SDL_PEN_MAX_NAME - 1 == SDL_strlen(name),
-			"Pen #2 name length");
+                        "Pen #2 name length");
     SDLTest_AssertCheck(0 == SDL_memcmp(name, long_pen_name, SDL_PEN_MAX_NAME - 1),
-			"Pen #2 name contents");
-    SDLTest_AssertCheck((SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT_MASK) == SDL_PenCapabilities(ptest.ids[2]),
-			"Pen #2 capabilities");
+                        "Pen #2 name contents");
+    SDLTest_AssertCheck((SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT_MASK) == SDL_PenCapabilities(ptest.ids[2], NULL),
+                        "Pen #2 capabilities");
     SDLTest_AssertPass("Pen registration and basic queries");
 
     /* Re-run GC, track deallocations */
     SDL_PenGCMark();
     _pen_trackGCSweep(&ptest);
-    SDLTest_AssertCheck(0 == SDL_NumPens(),
-			"Expected SDL_NumPens() == 0 after third GC pass");
+    _AssertCheck_num_pens(0, "after third GC pass");
     SDLTest_AssertCheck(ptest.deallocated_id_flags == 0x07,
-			"Unexpected device deallocation : %08x", ptest.deallocated_id_flags);
+                        "No unexpected device deallocation : %08x", ptest.deallocated_id_flags);
     SDLTest_AssertCheck(ptest.deallocated_deviceinfo_flags == 0x01110000,
-			"Unexpected deviceinfo deallocation : %08x ", ptest.deallocated_deviceinfo_flags);
+                        "No unexpected deviceinfo deallocation : %08x ", ptest.deallocated_deviceinfo_flags);
     SDLTest_AssertPass("Validated that GC on empty pen set is idempotent");
 
-    /* Restore previously existing pens */
-    _pen_enableAndRestore(backup);
-    SDLTest_AssertPass("Restored pens to pre-test state");
-
-    /* Check that we restored the right number of pens */
-    SDLTest_AssertCheck(SDL_NumPens() == initial_pen_count,
-			"SDL_NumPens() == %d (initail_pen_count)", initial_pen_count);
-
+    /* tear down and finish */
+    _teardown_test(&ptest, backup);
     return TEST_COMPLETED;
 }
 
-/**
- * @brief Check basic pen device queries
- *
- * @sa SDL_PenName, SDL_PenCapabilities
- */
-static int
-pen_queries(void *arg)
+static void
+_expect_pen_attached(SDL_PenID penid)
 {
-    return TEST_COMPLETED;
+    SDLTest_AssertCheck(-1 != _pen_iterationFindsPenIDAt(penid),  "Found PenID(%d)", penid.id);
+    SDLTest_AssertCheck(SDL_PenAttached(penid), "Pen %d was attached, as expected", penid.id);
+}
+
+static void
+_expect_pen_detached(SDL_PenID penid)
+{
+    SDLTest_AssertCheck(-1 == _pen_iterationFindsPenIDAt(penid),  "Did not find PenID(%d), as expected", penid.id);
+    SDLTest_AssertCheck(!SDL_PenAttached(penid), "Pen %d was detached, as expected", penid.id);
 }
 
 /**
  * @brief Check pen device hotplugging
  *
- * @sa SDL_NumPens, SDL_PenIDForIndex, SDL_PenName, SDL_PenCapabilities, SDL_PenConnected
+ * @sa SDL_NumPens, SDL_PenIDForIndex, SDL_PenName, SDL_PenCapabilities, SDL_PenAttached
  */
 static int
 pen_hotplugging(void *arg)
 {
+    pen_testdata ptest;
+    deviceinfo_backup *backup = _setup_test(&ptest, 3);
+
+    /* Add two pens */
+    SDL_PenGCMark();
+
+    _pen_setDeviceinfo(_pen_register(ptest.ids[0], ptest.guids[0], "pen 0", SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK),
+                       16);
+    _pen_setDeviceinfo(_pen_register(ptest.ids[2], ptest.guids[2], "pen 2", SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK),
+                       24);
+    _pen_trackGCSweep(&ptest);
+
+    _AssertCheck_num_pens(2, "after allocating two pens (pass 1)");
+    SDLTest_AssertCheck(ptest.deallocated_id_flags == 0, "No unexpected device deallocation (pass 1)");
+    SDLTest_AssertCheck(ptest.deallocated_deviceinfo_flags == 0, "No unexpected deviceinfo deallocation (pass 1)");
+
+    _expect_pen_attached(ptest.ids[0]);
+    _expect_pen_detached(ptest.ids[1]);
+    _expect_pen_attached(ptest.ids[2]);
+    SDLTest_AssertPass("Validated hotplugging (pass 1): attachmend of two pens");
+
+    /* Introduce pen #1, remove pen #2 */
+    SDL_PenGCMark();
+    _pen_setDeviceinfo(_pen_register(ptest.ids[0], ptest.guids[0], "pen 0", SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK),
+                       DEVICEINFO_UNCHANGED);
+    _pen_setDeviceinfo(_pen_register(ptest.ids[1], ptest.guids[1], "pen 1", SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK),
+                       20);
+    _pen_trackGCSweep(&ptest);
+
+    _AssertCheck_num_pens(2, "after allocating two pens (pass 2)");
+    SDLTest_AssertCheck(ptest.deallocated_id_flags == 0x04, "No unexpected device deallocation (pass 2): %x", ptest.deallocated_id_flags);
+    SDLTest_AssertCheck(ptest.deallocated_deviceinfo_flags == 0x01000000, "No unexpected deviceinfo deallocation (pass 2): %x", ptest.deallocated_deviceinfo_flags);
+
+    _expect_pen_attached(ptest.ids[0]);
+    _expect_pen_attached(ptest.ids[1]);
+    _expect_pen_detached(ptest.ids[2]);
+    SDLTest_AssertPass("Validated hotplugging (pass 2): unplug one, attach another");
+
+    /* Return to previous state (#2 attached) */
+    SDL_PenGCMark();
+
+    _pen_setDeviceinfo(_pen_register(ptest.ids[0], ptest.guids[0], "pen 0", SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_YTILT),
+                       DEVICEINFO_UNCHANGED);
+    _pen_setDeviceinfo(_pen_register(ptest.ids[2], ptest.guids[2], "pen 2", SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK),
+                       24);
+    _pen_trackGCSweep(&ptest);
+
+    _AssertCheck_num_pens(2, "after allocating two pens (pass 3)");
+    SDLTest_AssertCheck(ptest.deallocated_id_flags == 0x02, "No unexpected device deallocation (pass 3)");
+    SDLTest_AssertCheck(ptest.deallocated_deviceinfo_flags == 0x00100000, "No unexpected deviceinfo deallocation (pass 3)");
+
+    _expect_pen_attached(ptest.ids[0]);
+    _expect_pen_detached(ptest.ids[1]);
+    _expect_pen_attached(ptest.ids[2]);
+    SDLTest_AssertPass("Validated hotplugging (pass 3): return to state of pass 1");
+
+    /* Introduce pen #1, remove pen #0 */
+    SDL_PenGCMark();
+    _pen_setDeviceinfo(_pen_register(ptest.ids[1], ptest.guids[1], "pen 1", SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK),
+                       20);
+    _pen_setDeviceinfo(_pen_register(ptest.ids[2], ptest.guids[2], "pen 2", SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK),
+                       DEVICEINFO_UNCHANGED);
+    _pen_trackGCSweep(&ptest);
+
+    _AssertCheck_num_pens(2, "after allocating two pens (pass 4)");
+    SDLTest_AssertCheck(ptest.deallocated_id_flags == 0x01, "No unexpected device deallocation (pass 4): %x", ptest.deallocated_id_flags);
+    SDLTest_AssertCheck(ptest.deallocated_deviceinfo_flags == 0x00010000, "No unexpected deviceinfo deallocation (pass 4): %x", ptest.deallocated_deviceinfo_flags);
+
+    _expect_pen_detached(ptest.ids[0]);
+    _expect_pen_attached(ptest.ids[1]);
+    _expect_pen_attached(ptest.ids[2]);
+    SDLTest_AssertPass("Validated hotplugging (pass 5)");
+
+    /* Check detached pen */
+    SDLTest_AssertCheck(0 == SDL_strcmp("pen 0", SDL_PenName(ptest.ids[0])),
+                        "Pen #0 name");
+    SDLTest_AssertCheck(0 == SDL_memcmp(ptest.guids[0].data, SDL_PenGUIDForPenID(ptest.ids[0]).data, sizeof(ptest.guids[0].data)),
+                        "Pen #0 guid");
+    SDLTest_AssertCheck((SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_YTILT) == SDL_PenCapabilities(ptest.ids[0], NULL),
+                        "Pen #0 capabilities");
+
+    SDL_PenGCMark();
+    _pen_trackGCSweep(&ptest);
+    _AssertCheck_num_pens(0, "after allocating two pens (cleanup)");
+    SDLTest_AssertCheck(ptest.deallocated_id_flags == 0x06, "No unexpected device deallocation (cleanup): %x", ptest.deallocated_id_flags);
+    SDLTest_AssertCheck(ptest.deallocated_deviceinfo_flags == 0x01100000, "No unexpected deviceinfo deallocation (pass 4): %x", ptest.deallocated_deviceinfo_flags);
+
+    _teardown_test_with_gc(&ptest, backup);
+
     return TEST_COMPLETED;
 }
 
@@ -317,6 +731,85 @@ pen_hotplugging(void *arg)
 static int
 pen_GUIDs(void *arg)
 {
+    int i;
+    char* names[4] = { "pen 0", "pen 1", "pen 2", "pen 3" };
+    pen_testdata ptest;
+    deviceinfo_backup *backup;
+
+    char* guid_strings[3] = {
+        "00112233445566770011223344556680",
+        "a0112233445566770011223344556680",
+        "a0112233445566770011223344556681",
+    };
+    char guidbuf[33];
+
+    /* Test by-GUID lookup */
+    backup = _setup_test(&ptest, 4);
+
+    /* From string */
+    for (i = 0; i < 3; ++i) {
+        ptest.guids[i] = SDL_PenGUIDForString(guid_strings[i]);
+    }
+
+    /* Back to strings */
+    for (i = 0; i < 3; ++i) {
+        SDL_PenStringForGUID(ptest.guids[i], guidbuf, 33);
+        SDLTest_AssertCheck(0 == SDL_strcmp(guidbuf, guid_strings[i]),
+                            "GUID string deserialisation:\n\tExpected:\t'%s'\n\tActual:\t\t'%s'",
+                            guidbuf, guid_strings[i]);
+    }
+    SDLTest_AssertPass("Pen GUID from and back to string");
+
+    /* comparison */
+    for (i = 0; i < 3; ++i) {
+        int k;
+        for (k = 0; k < 3; ++k) {
+            SDL_PenGUID lhs = ptest.guids[i];
+            SDL_PenGUID rhs = ptest.guids[k];
+
+            if (i == k) {
+                SDLTest_AssertCheck(0 == SDL_PenGUIDCompare(lhs, rhs),
+                                    "GUID #%d must be equal to GUID %d", i, k);
+            } else if (i < k) {
+                SDLTest_AssertCheck(0 > SDL_PenGUIDCompare(lhs, rhs),
+                                    "GUID #%d must be less than GUID %d", i, k);
+            } else {
+                SDLTest_AssertCheck(0 < SDL_PenGUIDCompare(lhs, rhs),
+                                    "GUID #%d must be bigger than GUID %d", i, k);
+            }
+        }
+    }
+    SDLTest_AssertPass("Pen GUID comparison");
+
+    /* Define four pens */
+    SDL_PenGCMark();
+    for (i = 0; i < 4; ++i) {
+        _pen_setDeviceinfo(_pen_register(ptest.ids[i], ptest.guids[i], names[i], SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK),
+                           20);
+    }
+    _pen_trackGCSweep(&ptest);
+
+    /* Detach pens 0 and 2 */
+    SDL_PenGCMark();
+    for (i = 1; i < 4; i += 2) {
+        _pen_setDeviceinfo(_pen_register(ptest.ids[i], ptest.guids[i], names[i], SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK),
+                           DEVICEINFO_UNCHANGED);
+    }
+    _pen_trackGCSweep(&ptest);
+
+    for (i = 0; i < 4; ++i) {
+        SDLTest_AssertCheck(ptest.ids[i].id == SDL_PenIDForGUID(ptest.guids[i]).id,
+                            "GUID search succeeded for %d", i);
+    }
+
+    /* detach all */
+    SDL_PenGCMark();
+    _pen_trackGCSweep(&ptest);
+
+    _teardown_test(&ptest, backup);
+    SDLTest_AssertPass("Pen ID lookup by GUID");
+
+
     return TEST_COMPLETED;
 }
 
@@ -327,585 +820,421 @@ pen_GUIDs(void *arg)
 static int
 pen_buttonReporting(void *arg)
 {
+    int i;
+    int button_nr, pen_nr;
+    pen_testdata ptest;
+    SDL_Event event;
+    SDL_PenStatusInfo update;
+    float axes[SDL_PEN_NUM_AXES + 1];
+    const float expected_x[2] = { 10.0f, 20.0f };
+    const float expected_y[2] = { 11.0f, 21.0f };
+
+    /* Register pen */
+    deviceinfo_backup *backup = _setup_test(&ptest, 2);
+    SDL_PenGCMark();
+    _pen_setDeviceinfo(_pen_register(ptest.ids[0], ptest.guids[0], "test pen",
+                                       SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT | SDL_PEN_AXIS_YTILT),
+                       20);
+    _pen_setDeviceinfo(_pen_register(ptest.ids[1], ptest.guids[1], "test eraser",
+                                       SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT | SDL_PEN_AXIS_YTILT),
+                       24);
+    _pen_trackGCSweep(&ptest);
+
+    /* Position mouse suitably before we start */
+    for (i = 0; i <= SDL_PEN_NUM_AXES; ++i) {
+        axes[i] = 0.0625f * i;  /* initialise with numbers that can be represented precisely in IEEE 754 and
+                                   are > 0.0f and <= 1.0f */
+    }
+    update.x = expected_x[0];
+    update.y = expected_y[0];
+    SDL_memcpy(update.axes, axes, sizeof(float) * SDL_PEN_NUM_AXES);
+    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+    update.x = expected_x[1];
+    update.y = expected_y[1];
+    SDL_memcpy(update.axes, axes + 1, sizeof(float) * SDL_PEN_NUM_AXES);
+    SDL_SendPenMotion(NULL, ptest.ids[1], SDL_TRUE, &update);
+
+    while (SDL_PollEvent(&event)); /* Flush event queue */
+    SDLTest_AssertPass("Pen and eraser set up for button testing");
+
+    /* Actual tests start: pen, then eraser */
+    for (pen_nr = 0; pen_nr < 2; ++pen_nr) {
+        Uint16 pen_state = 0x0000;
+        float *expected_axes = axes + pen_nr;
+
+        if (pen_nr == 1) {
+            pen_state |= SDL_PEN_ERASER_MASK;
+        }
+        for (button_nr = 1; button_nr <= 8; ++button_nr) {
+            SDL_bool found_event = SDL_FALSE;
+            pen_state |= (1 << (button_nr - 1));
+
+            SDL_SendPenButton(NULL, ptest.ids[pen_nr], SDL_PRESSED, button_nr);
+            while (SDL_PollEvent(&event)) {
+                if (event.type == SDL_PENBUTTONDOWN) {
+                    SDLTest_AssertCheck(event.pbutton.which.id == ptest.ids[pen_nr].id,
+                                        "Received SDL_PENBUTTONDOWN from correct pen");
+                    SDLTest_AssertCheck(event.pbutton.button == button_nr,
+                                        "Received SDL_PENBUTTONDOWN from correct button");
+                    SDLTest_AssertCheck(event.pbutton.state == SDL_PRESSED,
+                                        "Received SDL_PENBUTTONDOWN but and marked SDL_PRESSED");
+                    SDLTest_AssertCheck(event.pbutton.pen_state == pen_state,
+                                        "Received SDL_PENBUTTONDOWN, and state %04x == %04x (expected)",
+                                        event.pbutton.pen_state, pen_state);
+                    SDLTest_AssertCheck((event.pbutton.x == expected_x[pen_nr]) && (event.pbutton.y == expected_y[pen_nr]),
+                                        "Received SDL_PENBUTTONDOWN event at correct coordinates: (%f, %f) vs (%f, %f) (expected)",
+                                        event.pbutton.x, event.pbutton.y, expected_x[pen_nr], expected_y[pen_nr]);
+                    SDLTest_AssertCheck(0 == SDL_memcmp(expected_axes, event.pbutton.axes, sizeof(float) * SDL_PEN_NUM_AXES),
+                                        "Received SDL_PENBUTTONDOWN event with correct axis values");
+                    found_event = SDL_TRUE;
+                }
+            }
+            SDLTest_AssertCheck(found_event,
+                                "Received the expected SDL_PENBUTTONDOWN event");
+        }
+    }
+    SDLTest_AssertPass("Pressed all buttons");
+
+    /* Release every other button */
+    for (pen_nr = 0; pen_nr < 2; ++pen_nr) {
+        Uint16 pen_state = 0x00ff; /* 8 buttons pressed */
+        float *expected_axes = axes + pen_nr;
+
+        if (pen_nr == 1) {
+            pen_state |= SDL_PEN_ERASER_MASK;
+        }
+        for (button_nr = pen_nr + 1; button_nr <= 8; button_nr += 2) {
+            SDL_bool found_event = SDL_FALSE;
+            pen_state &= ~(1 << (button_nr - 1));
+
+            SDL_SendPenButton(NULL, ptest.ids[pen_nr], SDL_RELEASED, button_nr);
+            while (SDL_PollEvent(&event)) {
+                if (event.type == SDL_PENBUTTONUP) {
+                    SDLTest_AssertCheck(event.pbutton.which.id == ptest.ids[pen_nr].id,
+                                        "Received SDL_PENBUTTONUP from correct pen");
+                    SDLTest_AssertCheck(event.pbutton.button == button_nr,
+                                        "Received SDL_PENBUTTONUP from correct button");
+                    SDLTest_AssertCheck(event.pbutton.state == SDL_RELEASED,
+                                        "Received SDL_PENBUTTONUP and is marked SDL_RELEASED");
+                    SDLTest_AssertCheck(event.pbutton.pen_state == pen_state,
+                                        "Received SDL_PENBUTTONUP, and state %04x == %04x (expected)",
+                                        event.pbutton.pen_state, pen_state);
+                    SDLTest_AssertCheck((event.pbutton.x == expected_x[pen_nr]) && (event.pbutton.y == expected_y[pen_nr]),
+                                        "Received SDL_PENBUTTONUP event at correct coordinates");
+                    SDLTest_AssertCheck(0 == SDL_memcmp(expected_axes, event.pbutton.axes, sizeof(float) * SDL_PEN_NUM_AXES),
+                                        "Received SDL_PENBUTTONUP event with correct axis values");
+                    found_event = SDL_TRUE;
+                }
+            }
+            SDLTest_AssertCheck(found_event,
+                                "Received the expected SDL_PENBUTTONUP event");
+        }
+    }
+    SDLTest_AssertPass("Released every other button");
+
+    /* Cleanup */
+    SDL_PenGCMark();
+    _pen_trackGCSweep(&ptest);
+    _teardown_test(&ptest, backup);
+
     return TEST_COMPLETED;
 }
 
+
 /**
- * @brief Check pen device movement reporting
+ * @brief Check pen device movement and axis update reporting
  *
- */
-static int
-pen_movement(void *arg)
-{
-    return TEST_COMPLETED;
-}
-
-/**
- * @brief Check pen device axis updates
- *
- */
-static int
-pen_axes(void *arg)
-{
-    return TEST_COMPLETED;
-}
-
-/**
- * @brief Check pen device mouse emulation and event suppression
- *
- */
-static int
-pen_mouseEmulation(void *arg)
-{
-    return TEST_COMPLETED;
-}
-
-/**
- * @brief Check pen device status tracking
+ * Also tests SDL_PenStatus for agreement with the most recently reported events
  *
  * @sa SDL_PenStatus
  */
 static int
-pen_status(void *arg)
+pen_movementAndAxes(void *arg)
 {
-    return TEST_COMPLETED;
-}
+    pen_testdata ptest;
+    SDL_Event event;
 
-#if 0
-void f()
-{
-   int x;
-   int y;
-   Uint32 state;
+    /* Pen simulation */
+    simulated_pen_action steps[80] = {
+        /* #1: Check basic reporting */
+        /* Hover eraser, tilt axes */
+        SIMPEN_MOVE(0, 30.0f, 31.0f),
+        SIMPEN_AXIS(0, 0, 0.0f),
+        SIMPEN_AXIS(0, 1, 0.125f),
+        SIMPEN_AXIS(0, 2, 0.5f),
+        SIMPEN_EVENT_MOTION(0),
 
-   /* Pump some events to update mouse state */
-   SDL_PumpEvents();
-   SDLTest_AssertPass("Call to SDL_PumpEvents()");
+        /* #2: Check multiple pens being reported */
+        /* Move pen and touch surface, don't tilt */
+        SIMPEN_MOVE(1, 40.0f, 41.0f),
+        SIMPEN_AXIS(1, 0, 0.25f),
+        SIMPEN_EVENT_MOTION(1),
 
-   /* Case where x, y pointer is NULL */
-   state = SDL_GetMouseState(NULL, NULL);
-   SDLTest_AssertPass("Call to SDL_GetMouseState(NULL, NULL)");
-   SDLTest_AssertCheck(_mouseStateCheck(state), "Validate state returned from function, got: %i", state);
+        /* $3: Multi-buttons */
+        /* Press eraser buttons */
+        SIMPEN_EVENT_BUTTON(0, "push", 1),
+        SIMPEN_EVENT_BUTTON(0, "push", 3),
+        SIMPEN_EVENT_BUTTON(0, "push", 2),
+        SIMPEN_EVENT_BUTTON(0, 0, 2), /* release again */
+        SIMPEN_EVENT_BUTTON(0, "push", 4),
 
-   /* Case where x pointer is not NULL */
-   x = INT_MIN;
-   state = SDL_GetMouseState(&x, NULL);
-   SDLTest_AssertPass("Call to SDL_GetMouseState(&x, NULL)");
-   SDLTest_AssertCheck(x > INT_MIN, "Validate that value of x is > INT_MIN, got: %i", x);
-   SDLTest_AssertCheck(_mouseStateCheck(state), "Validate state returned from function, got: %i", state);
+        /* #4: Check move + button actions connecting */
+        /* Move and tilt pen, press some pen buttons */
+        SIMPEN_MOVE(1, 3.0f, 8.0f),
+        SIMPEN_AXIS(1, 0, 0.5f),
+        SIMPEN_AXIS(1, 1, -0.125f),
+        SIMPEN_AXIS(1, 2, -0.25f),
+        SIMPEN_EVENT_MOTION(1),
+        SIMPEN_EVENT_BUTTON(1, "push", 3),
+        SIMPEN_EVENT_BUTTON(1, "push", 1),
 
-   /* Case where y pointer is not NULL */
-   y = INT_MIN;
-   state = SDL_GetMouseState(NULL, &y);
-   SDLTest_AssertPass("Call to SDL_GetMouseState(NULL, &y)");
-   SDLTest_AssertCheck(y > INT_MIN, "Validate that value of y is > INT_MIN, got: %i", y);
-   SDLTest_AssertCheck(_mouseStateCheck(state), "Validate state returned from function, got: %i", state);
+        /* #5: Check nonterference between pens */
+        /* Eraser releases buttons */
+        SIMPEN_EVENT_BUTTON(0, 0, 2),
+        SIMPEN_EVENT_BUTTON(0, 0, 1),
 
-   /* Case where x and y pointer is not NULL */
-   x = INT_MIN;
-   y = INT_MIN;
-   state = SDL_GetMouseState(&x, &y);
-   SDLTest_AssertPass("Call to SDL_GetMouseState(&x, &y)");
-   SDLTest_AssertCheck(x > INT_MIN, "Validate that value of x is > INT_MIN, got: %i", x);
-   SDLTest_AssertCheck(y > INT_MIN, "Validate that value of y is > INT_MIN, got: %i", y);
-   SDLTest_AssertCheck(_mouseStateCheck(state), "Validate state returned from function, got: %i", state);
+        /* #6: Press-move-release action */
+        /* Eraser press-move-release */
+        SIMPEN_EVENT_BUTTON(0, "push", 2),
+        SIMPEN_MOVE(0, 99.0f, 88.0f),
+        SIMPEN_AXIS(0, 0, 0.625f),
+        SIMPEN_EVENT_MOTION(0),
+        SIMPEN_MOVE(0, 44.5f, 42.25f),
+        SIMPEN_EVENT_MOTION(0),
+        SIMPEN_EVENT_BUTTON(0, 0, 2),
 
-   return TEST_COMPLETED;
-}
+        /* #7: Intertwining button release actions some more */
+        /* Pen releases button */
+        SIMPEN_EVENT_BUTTON(1, 0, 3),
+        SIMPEN_EVENT_BUTTON(1, 0, 1),
 
-/**
- * @brief Check call to SDL_GetRelativeMouseState
- *
- */
-static int
-pen_getRelativeMouseState(void *arg)
-{
-   int x;
-   int y;
-   Uint32 state;
+        /* Push one more pen button, then release all ereaser buttons */
+        SIMPEN_EVENT_BUTTON(1, "push", 1),
+        SIMPEN_EVENT_BUTTON(0, 0, 3),
+        SIMPEN_EVENT_BUTTON(0, 0, 4),
 
-   /* Pump some events to update mouse state */
-   SDL_PumpEvents();
-   SDLTest_AssertPass("Call to SDL_PumpEvents()");
+        SIMPEN_DONE()
+    };
+    SDL_Pen simulated_pens[2];
+    int sim_pc = 0;
+    simulated_pen_action *last_action;
 
-   /* Case where x, y pointer is NULL */
-   state = SDL_GetRelativeMouseState(NULL, NULL);
-   SDLTest_AssertPass("Call to SDL_GetRelativeMouseState(NULL, NULL)");
-   SDLTest_AssertCheck(_mouseStateCheck(state), "Validate state returned from function, got: %i", state);
-
-   /* Case where x pointer is not NULL */
-   x = INT_MIN;
-   state = SDL_GetRelativeMouseState(&x, NULL);
-   SDLTest_AssertPass("Call to SDL_GetRelativeMouseState(&x, NULL)");
-   SDLTest_AssertCheck(x > INT_MIN, "Validate that value of x is > INT_MIN, got: %i", x);
-   SDLTest_AssertCheck(_mouseStateCheck(state), "Validate state returned from function, got: %i", state);
-
-   /* Case where y pointer is not NULL */
-   y = INT_MIN;
-   state = SDL_GetRelativeMouseState(NULL, &y);
-   SDLTest_AssertPass("Call to SDL_GetRelativeMouseState(NULL, &y)");
-   SDLTest_AssertCheck(y > INT_MIN, "Validate that value of y is > INT_MIN, got: %i", y);
-   SDLTest_AssertCheck(_mouseStateCheck(state), "Validate state returned from function, got: %i", state);
-
-   /* Case where x and y pointer is not NULL */
-   x = INT_MIN;
-   y = INT_MIN;
-   state = SDL_GetRelativeMouseState(&x, &y);
-   SDLTest_AssertPass("Call to SDL_GetRelativeMouseState(&x, &y)");
-   SDLTest_AssertCheck(x > INT_MIN, "Validate that value of x is > INT_MIN, got: %i", x);
-   SDLTest_AssertCheck(y > INT_MIN, "Validate that value of y is > INT_MIN, got: %i", y);
-   SDLTest_AssertCheck(_mouseStateCheck(state), "Validate state returned from function, got: %i", state);
-
-   return TEST_COMPLETED;
-}
+    /* Register pen */
+    deviceinfo_backup *backup = _setup_test(&ptest, 2);
 
 
-/* XPM definition of mouse Cursor */
-static const char *_mouseArrowData[] = {
-  /* pixels */
-  "X                               ",
-  "XX                              ",
-  "X.X                             ",
-  "X..X                            ",
-  "X...X                           ",
-  "X....X                          ",
-  "X.....X                         ",
-  "X......X                        ",
-  "X.......X                       ",
-  "X........X                      ",
-  "X.....XXXXX                     ",
-  "X..X..X                         ",
-  "X.X X..X                        ",
-  "XX  X..X                        ",
-  "X    X..X                       ",
-  "     X..X                       ",
-  "      X..X                      ",
-  "      X..X                      ",
-  "       XX                       ",
-  "                                ",
-  "                                ",
-  "                                ",
-  "                                ",
-  "                                ",
-  "                                ",
-  "                                ",
-  "                                ",
-  "                                ",
-  "                                ",
-  "                                ",
-  "                                ",
-  "                                "
-};
+    SDL_PenGCMark();
+    _pen_setDeviceinfo(_pen_register(ptest.ids[0], ptest.guids[0], "test eraser",
+                                       SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT | SDL_PEN_AXIS_YTILT),
+                       20);
+    _pen_setDeviceinfo(_pen_register(ptest.ids[1], ptest.guids[1], "test pen",
+                                       SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT | SDL_PEN_AXIS_YTILT),
+                       24);
+    _pen_trackGCSweep(&ptest);
+    while (SDL_PollEvent(&event)); /* Flush event queue */
+    SDLTest_AssertPass("Pen and eraser set up for testing");
 
-/* Helper that creates a new mouse cursor from an XPM */
-static SDL_Cursor *_initArrowCursor(const char *image[])
-{
-  SDL_Cursor *cursor;
-  int i, row, col;
-  Uint8 data[4*32];
-  Uint8 mask[4*32];
 
-  i = -1;
-  for ( row=0; row<32; ++row ) {
-    for ( col=0; col<32; ++col ) {
-      if ( col % 8 ) {
-        data[i] <<= 1;
-        mask[i] <<= 1;
-      } else {
-        ++i;
-        data[i] = mask[i] = 0;
-      }
-      switch (image[row][col]) {
-        case 'X':
-          data[i] |= 0x01;
-          mask[i] |= 0x01;
-          break;
-        case '.':
-          mask[i] |= 0x01;
-          break;
-        case ' ':
-          break;
-      }
-    }
-  }
+    _pen_simulate_init(&ptest, simulated_pens, 2);
+    /* Simulate pen movements */
+    while ((last_action = _pen_simulate(steps, &sim_pc, &simulated_pens[0], 2))) {
+        int attempts = 0;
+        do {
+            SDL_PumpEvents();
+            SDL_PollEvent(&event);
+            if (++attempts > 10000) {
+                SDLTest_AssertCheck(0, "Never got the anticipated event");
+                return TEST_ABORTED;
+            }
+        } while (event.type != SDL_PENMOTION
+                 && event.type != SDL_PENBUTTONUP
+                 && event.type != SDL_PENBUTTONDOWN); /* skip boring events */
 
-  cursor = SDL_CreateCursor(data, mask, 32, 32, 0, 0);
-  return cursor;
-}
+        SDL_Pen *simpen = &simulated_pens[last_action->pen_index];
+        SDL_PenID reported_which;
+        float reported_x, reported_y;
+        float *reported_axes;
+        Uint32 reported_pen_state;
+        Uint32 expected_pen_state = simpen->header.flags & SDL_PEN_ERASER_MASK;
+        SDL_bool dump_pens = SDL_FALSE;
 
-/**
- * @brief Check call to SDL_CreateCursor and SDL_FreeCursor
- *
- * @sa http://wiki.libsdl.org/SDL_CreateCursor
- * @sa http://wiki.libsdl.org/SDL_FreeCursor
- */
-static int
-pen_createFreeCursor(void *arg)
-{
-    SDL_Cursor *cursor;
+        expected_pen_state |= simpen->last.buttons;
 
-    /* Create a cursor */
-    cursor = _initArrowCursor(_mouseArrowData);
-        SDLTest_AssertPass("Call to SDL_CreateCursor()");
-        SDLTest_AssertCheck(cursor != NULL, "Validate result from SDL_CreateCursor() is not NULL");
-    if (cursor == NULL) {
-        return TEST_ABORTED;
-    }
+        SDLTest_AssertCheck(0 != event.type,
+                            "Received the anticipated event");
 
-    /* Free cursor again */
-    SDL_FreeCursor(cursor);
-    SDLTest_AssertPass("Call to SDL_FreeCursor()");
+        switch (last_action->type) {
+        case SIMPEN_ACTION_MOTION_EVENT:
+            SDLTest_AssertCheck(event.type == SDL_PENMOTION, "Expected pen motion event (got 0x%x)", event.type);
+            reported_which = event.pmotion.which;
+            reported_x = event.pmotion.x;
+            reported_y = event.pmotion.y;
+            reported_pen_state = event.pmotion.pen_state;
+            reported_axes = &event.pmotion.axes[0];
+            break;
 
-    return TEST_COMPLETED;
-}
+        case SIMPEN_ACTION_PRESS:
+            SDLTest_AssertCheck(event.type == SDL_PENBUTTONDOWN, "Expected PENBUTTONDOWN event (got 0x%x)", event.type);
+            SDLTest_AssertCheck(event.pbutton.state == SDL_PRESSED, "Expected PRESSED button");
+            /* Fall through */
+        case SIMPEN_ACTION_RELEASE:
+            if (last_action->type == SIMPEN_ACTION_RELEASE) {
+                SDLTest_AssertCheck(event.type == SDL_PENBUTTONUP, "Expected PENBUTTONUP event (got 0x%x)", event.type);
+                SDLTest_AssertCheck(event.pbutton.state == SDL_RELEASED, "Expected RELEASED button");
+            }
+            SDLTest_AssertCheck(event.pbutton.button == last_action->index, "Expected button %d, got %d",
+                                last_action->index, event.pbutton.button);
+            reported_which = event.pbutton.which;
+            reported_x = event.pbutton.x;
+            reported_y = event.pbutton.y;
+            reported_pen_state = event.pbutton.pen_state;
+            reported_axes = &event.pbutton.axes[0];
+            break;
 
-/**
- * @brief Check call to SDL_CreateColorCursor and SDL_FreeCursor
- *
- * @sa http://wiki.libsdl.org/SDL_CreateColorCursor
- * @sa http://wiki.libsdl.org/SDL_FreeCursor
- */
-static int
-pen_createFreeColorCursor(void *arg)
-{
-    SDL_Surface *face;
-    SDL_Cursor *cursor;
-
-    /* Get sample surface */
-    face = SDLTest_ImageFace();
-    SDLTest_AssertCheck(face != NULL, "Validate sample input image is not NULL");
-    if (face == NULL) return TEST_ABORTED;
-
-    /* Create a color cursor from surface */
-    cursor = SDL_CreateColorCursor(face, 0, 0);
-        SDLTest_AssertPass("Call to SDL_CreateColorCursor()");
-        SDLTest_AssertCheck(cursor != NULL, "Validate result from SDL_CreateColorCursor() is not NULL");
-    if (cursor == NULL) {
-        SDL_FreeSurface(face);
-        return TEST_ABORTED;
-    }
-
-    /* Free cursor again */
-    SDL_FreeCursor(cursor);
-    SDLTest_AssertPass("Call to SDL_FreeCursor()");
-
-    /* Clean up */
-    SDL_FreeSurface(face);
-
-    return TEST_COMPLETED;
-}
-
-/* Helper that changes cursor visibility */
-static void
-_changeCursorVisibility(int state)
-{
-    int oldState;
-    int newState;
-    int result;
-
-        oldState = SDL_ShowCursor(SDL_QUERY);
-    SDLTest_AssertPass("Call to SDL_ShowCursor(SDL_QUERY)");
-
-        result = SDL_ShowCursor(state);
-    SDLTest_AssertPass("Call to SDL_ShowCursor(%s)", (state == SDL_ENABLE) ? "SDL_ENABLE" : "SDL_DISABLE");
-    SDLTest_AssertCheck(result == oldState, "Validate result from SDL_ShowCursor(%s), expected: %i, got: %i",
-        (state == SDL_ENABLE) ? "SDL_ENABLE" : "SDL_DISABLE", oldState, result);
-
-    newState = SDL_ShowCursor(SDL_QUERY);
-    SDLTest_AssertPass("Call to SDL_ShowCursor(SDL_QUERY)");
-    SDLTest_AssertCheck(state == newState, "Validate new state, expected: %i, got: %i",
-        state, newState);
-}
-
-/**
- * @brief Check call to SDL_ShowCursor
- *
- * @sa http://wiki.libsdl.org/SDL_ShowCursor
- */
-static int
-pen_showCursor(void *arg)
-{
-    int currentState;
-
-    /* Get current state */
-    currentState = SDL_ShowCursor(SDL_QUERY);
-    SDLTest_AssertPass("Call to SDL_ShowCursor(SDL_QUERY)");
-    SDLTest_AssertCheck(currentState == SDL_DISABLE || currentState == SDL_ENABLE,
-        "Validate result is %i or %i, got: %i", SDL_DISABLE, SDL_ENABLE, currentState);
-    if (currentState == SDL_DISABLE) {
-        /* Show the cursor, then hide it again */
-        _changeCursorVisibility(SDL_ENABLE);
-        _changeCursorVisibility(SDL_DISABLE);
-    } else if (currentState == SDL_ENABLE) {
-        /* Hide the cursor, then show it again */
-        _changeCursorVisibility(SDL_DISABLE);
-        _changeCursorVisibility(SDL_ENABLE);
-    } else {
-        return TEST_ABORTED;
-    }
-
-    return TEST_COMPLETED;
-}
-
-/**
- * @brief Check call to SDL_SetCursor
- *
- * @sa http://wiki.libsdl.org/SDL_SetCursor
- */
-static int
-pen_setCursor(void *arg)
-{
-    SDL_Cursor *cursor;
-
-    /* Create a cursor */
-    cursor = _initArrowCursor(_mouseArrowData);
-        SDLTest_AssertPass("Call to SDL_CreateCursor()");
-        SDLTest_AssertCheck(cursor != NULL, "Validate result from SDL_CreateCursor() is not NULL");
-    if (cursor == NULL) {
-        return TEST_ABORTED;
-    }
-
-    /* Set the arrow cursor */
-    SDL_SetCursor(cursor);
-    SDLTest_AssertPass("Call to SDL_SetCursor(cursor)");
-
-    /* Force redraw */
-    SDL_SetCursor(NULL);
-    SDLTest_AssertPass("Call to SDL_SetCursor(NULL)");
-
-    /* Free cursor again */
-    SDL_FreeCursor(cursor);
-    SDLTest_AssertPass("Call to SDL_FreeCursor()");
-
-    return TEST_COMPLETED;
-}
-
-/**
- * @brief Check call to SDL_GetCursor
- *
- * @sa http://wiki.libsdl.org/SDL_GetCursor
- */
-static int
-pen_getCursor(void *arg)
-{
-    SDL_Cursor *cursor;
-
-    /* Get current cursor */
-    cursor = SDL_GetCursor();
-        SDLTest_AssertPass("Call to SDL_GetCursor()");
-        SDLTest_AssertCheck(cursor != NULL, "Validate result from SDL_GetCursor() is not NULL");
-
-    return TEST_COMPLETED;
-}
-
-/**
- * @brief Check call to SDL_GetRelativeMouseMode and SDL_SetRelativeMouseMode
- *
- * @sa http://wiki.libsdl.org/SDL_GetRelativeMouseMode
- * @sa http://wiki.libsdl.org/SDL_SetRelativeMouseMode
- */
-static int
-pen_getSetRelativeMouseMode(void *arg)
-{
-    int result;
-        int i;
-    SDL_bool initialState;
-    SDL_bool currentState;
-
-    /* Capture original state so we can revert back to it later */
-    initialState = SDL_GetRelativeMouseMode();
-        SDLTest_AssertPass("Call to SDL_GetRelativeMouseMode()");
-
-        /* Repeat twice to check D->D transition */
-        for (i=0; i<2; i++) {
-      /* Disable - should always be supported */
-          result = SDL_SetRelativeMouseMode(SDL_FALSE);
-          SDLTest_AssertPass("Call to SDL_SetRelativeMouseMode(FALSE)");
-          SDLTest_AssertCheck(result == 0, "Validate result value from SDL_SetRelativeMouseMode, expected: 0, got: %i", result);
-      currentState = SDL_GetRelativeMouseMode();
-          SDLTest_AssertPass("Call to SDL_GetRelativeMouseMode()");
-          SDLTest_AssertCheck(currentState == SDL_FALSE, "Validate current state is FALSE, got: %i", currentState);
+        default:
+            SDLTest_AssertCheck(0, "Error in pen simulator: unexpected action %d", last_action->type);
+            return TEST_ABORTED;
         }
 
-        /* Repeat twice to check D->E->E transition */
-        for (i=0; i<2; i++) {
-      /* Enable - may not be supported */
-          result = SDL_SetRelativeMouseMode(SDL_TRUE);
-          SDLTest_AssertPass("Call to SDL_SetRelativeMouseMode(TRUE)");
-          if (result != -1) {
-            SDLTest_AssertCheck(result == 0, "Validate result value from SDL_SetRelativeMouseMode, expected: 0, got: %i", result);
-        currentState = SDL_GetRelativeMouseMode();
-            SDLTest_AssertPass("Call to SDL_GetRelativeMouseMode()");
-            SDLTest_AssertCheck(currentState == SDL_TRUE, "Validate current state is TRUE, got: %i", currentState);
-          }
+        if (reported_which.id != simpen->header.id.id) {
+            dump_pens = SDL_TRUE;
+            SDLTest_AssertCheck(0, "Expected report for pen %d but got report for pen %d",
+                                simpen->header.id.id, reported_which.id);
+        }
+        if (reported_x != simpen->last.x
+            || reported_y != simpen->last.y) {
+            dump_pens = SDL_TRUE;
+            SDLTest_AssertCheck(0, "Mismatch in pen coordinates");
+        }
+        if (reported_x != simpen->last.x
+            || reported_y != simpen->last.y) {
+            dump_pens = SDL_TRUE;
+            SDLTest_AssertCheck(0, "Mismatch in pen coordinates");
+        }
+        if (reported_pen_state != expected_pen_state) {
+            dump_pens = SDL_TRUE;
+            SDLTest_AssertCheck(0, "Mismatch in pen state: %x vs %x (expected)",
+                                reported_pen_state, expected_pen_state);
+        }
+        if (0 != SDL_memcmp(reported_axes, simpen->last.axes, sizeof(float) * SDL_PEN_NUM_AXES)) {
+            dump_pens = SDL_TRUE;
+            SDLTest_AssertCheck(0, "Mismatch in axes");
         }
 
-    /* Disable to check E->D transition */
-        result = SDL_SetRelativeMouseMode(SDL_FALSE);
-        SDLTest_AssertPass("Call to SDL_SetRelativeMouseMode(FALSE)");
-        SDLTest_AssertCheck(result == 0, "Validate result value from SDL_SetRelativeMouseMode, expected: 0, got: %i", result);
-    currentState = SDL_GetRelativeMouseMode();
-        SDLTest_AssertPass("Call to SDL_GetRelativeMouseMode()");
-        SDLTest_AssertCheck(currentState == SDL_FALSE, "Validate current state is FALSE, got: %i", currentState);
-
-        /* Revert to original state - ignore result */
-        result = SDL_SetRelativeMouseMode(initialState);
-
-    return TEST_COMPLETED;
-}
-
-#define PEN_TESTWINDOW_WIDTH  320
-#define PEN_TESTWINDOW_HEIGHT 200
-
-/**
- * Creates a test window
- */
-static SDL_Window
-*_createMouseSuiteTestWindow()
-{
-  int posX = 100, posY = 100, width = PEN_TESTWINDOW_WIDTH, height = PEN_TESTWINDOW_HEIGHT;
-  SDL_Window *window;
-  window = SDL_CreateWindow("pen_createMouseSuiteTestWindow", posX, posY, width, height, 0);
-  SDLTest_AssertPass("SDL_CreateWindow()");
-  SDLTest_AssertCheck(window != NULL, "Check SDL_CreateWindow result");
-  return window;
-}
-
-/*
- * Destroy test window
- */
-static void
-_destroyMouseSuiteTestWindow(SDL_Window *window)
-{
-  if (window != NULL) {
-     SDL_DestroyWindow(window);
-     window = NULL;
-     SDLTest_AssertPass("SDL_DestroyWindow()");
-  }
-}
-
-/**
- * @brief Check call to SDL_WarpMouseInWindow
- *
- * @sa http://wiki.libsdl.org/SDL_WarpMouseInWindow
- */
-static int
-pen_warpMouseInWindow(void *arg)
-{
-    const int w = PEN_TESTWINDOW_WIDTH, h = PEN_TESTWINDOW_HEIGHT;
-    int numPositions = 6;
-    int xPositions[6];
-    int yPositions[6];
-    int x, y, i, j;
-    SDL_Window *window;
-
-    xPositions[0] = -1;
-    xPositions[1] = 0;
-    xPositions[2] = 1;
-    xPositions[3] = w-1;
-    xPositions[4] = w;
-    xPositions[5] = w+1;
-    yPositions[0] = -1;
-    yPositions[1] = 0;
-    yPositions[2] = 1;
-    yPositions[3] = h-1;
-    yPositions[4] = h;
-    yPositions[5] = h+1;
-    /* Create test window */
-    window = _createMouseSuiteTestWindow();
-    if (window == NULL) return TEST_ABORTED;
-
-    /* Mouse to random position inside window */
-    x = SDLTest_RandomIntegerInRange(1, w-1);
-    y = SDLTest_RandomIntegerInRange(1, h-1);
-    SDL_WarpMouseInWindow(window, x, y);
-    SDLTest_AssertPass("SDL_WarpMouseInWindow(...,%i,%i)", x, y);
-
-        /* Same position again */
-    SDL_WarpMouseInWindow(window, x, y);
-    SDLTest_AssertPass("SDL_WarpMouseInWindow(...,%i,%i)", x, y);
-
-    /* Mouse to various boundary positions */
-    for (i=0; i<numPositions; i++) {
-      for (j=0; j<numPositions; j++) {
-        x = xPositions[i];
-        y = yPositions[j];
-        SDL_WarpMouseInWindow(window, x, y);
-        SDLTest_AssertPass("SDL_WarpMouseInWindow(...,%i,%i)", x, y);
-
-        /* TODO: add tracking of events and check that each call generates a mouse motion event */
-        SDL_PumpEvents();
-        SDLTest_AssertPass("SDL_PumpEvents()");
-      }
+        if (dump_pens) {
+            fprintf(stderr, "----- Pen #%d:\n", last_action->pen_index);
+            fprintf(stderr, "expect:\t");
+            _pen_dump(simpen);
+            fprintf(stderr, "actual:\t");
+            _pen_dump(SDL_GetPen(simpen->header.id.id));
+        }
     }
+    SDLTest_AssertPass("Pen and eraser move and report events correctly and independently");
 
-
-        /* Clean up test window */
-    _destroyMouseSuiteTestWindow(window);
-
+    /* Cleanup */
+    SDL_PenGCMark();
+    _pen_trackGCSweep(&ptest);
+    _teardown_test(&ptest, backup);
     return TEST_COMPLETED;
 }
+
+#define SET_POS(update, xpos, ypos) (update).x = (xpos); (update).y = (ypos);
 
 /**
- * @brief Check call to SDL_GetMouseFocus
+ * @brief Check pen device mouse emulation and event suppression
  *
- * @sa http://wiki.libsdl.org/SDL_GetMouseFocus
+ * Since we include SDL_pen.c, we link it against our own mock implementations of SDL_PSendMouseButton
+ * and SDL_SendMouseMotion; see tehere for details.
  */
 static int
-pen_getMouseFocus(void *arg)
+pen_mouseEmulation(void *arg)
 {
-    const int w = PEN_TESTWINDOW_WIDTH, h = PEN_TESTWINDOW_HEIGHT;
-    int x, y;
-    SDL_Window *window;
-    SDL_Window *focusWindow;
+    pen_testdata ptest;
+    SDL_Event event;
+    int i;
+    SDL_PenStatusInfo update;
 
-    /* Get focus - focus non-deterministic */
-    focusWindow = SDL_GetMouseFocus();
-    SDLTest_AssertPass("SDL_GetMouseFocus()");
-
-        /* Create test window */
-    window = _createMouseSuiteTestWindow();
-    if (window == NULL) return TEST_ABORTED;
-
-    /* Mouse to random position inside window */
-    x = SDLTest_RandomIntegerInRange(1, w-1);
-    y = SDLTest_RandomIntegerInRange(1, h-1);
-    SDL_WarpMouseInWindow(window, x, y);
-    SDLTest_AssertPass("SDL_WarpMouseInWindow(...,%i,%i)", x, y);
-
-    /* Pump events to update focus state */
-    SDL_Delay(100);
-    SDL_PumpEvents();
-    SDLTest_AssertPass("SDL_PumpEvents()");
-
-        /* Get focus with explicit window setup - focus deterministic */
-    focusWindow = SDL_GetMouseFocus();
-    SDLTest_AssertPass("SDL_GetMouseFocus()");
-    SDLTest_AssertCheck (focusWindow != NULL, "Check returned window value is not NULL");
-    SDLTest_AssertCheck (focusWindow == window, "Check returned window value is test window");
-
-    /* Mouse to random position outside window */
-    x = SDLTest_RandomIntegerInRange(-9, -1);
-    y = SDLTest_RandomIntegerInRange(-9, -1);
-    SDL_WarpMouseInWindow(window, x, y);
-    SDLTest_AssertPass("SDL_WarpMouseInWindow(...,%i,%i)", x, y);
-
-        /* Clean up test window */
-    _destroyMouseSuiteTestWindow(window);
-
-    /* Pump events to update focus state */
-    SDL_PumpEvents();
-    SDLTest_AssertPass("SDL_PumpEvents()");
-
-        /* Get focus for non-existing window */
-    focusWindow = SDL_GetMouseFocus();
-    SDLTest_AssertPass("SDL_GetMouseFocus()");
-    SDLTest_AssertCheck (focusWindow == NULL, "Check returned window value is NULL");
+    /* Register pen */
+    deviceinfo_backup *backup = _setup_test(&ptest, 1);
+    SDL_PenGCMark();
+    _pen_setDeviceinfo(_pen_register(ptest.ids[0], ptest.guids[0], "testpen",
+                                     SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT | SDL_PEN_AXIS_YTILT),
+                       20);
+    _pen_trackGCSweep(&ptest);
 
 
+    /* Initialise pen location */
+    SDL_memset(update.axes, 0, sizeof(update.axes));
+    SET_POS(update, 100.0f, 100.0f);
+    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+    while (SDL_PollEvent(&event)); /* Flush event queue */
+
+    /* Test motion forwarding */
+    _mouseemu_last_event = 0;
+    SET_POS(update, 121.25f, 110.75f);
+    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+    SDLTest_AssertCheck(SDL_MOUSEMOTION == _mouseemu_last_event,
+                        "Mouse motion event: %d", _mouseemu_last_event);
+    SDLTest_AssertCheck(121 == _mouseemu_last_x && 110 == _mouseemu_last_y,
+                        "Motion to correct position: %d,%d", _mouseemu_last_x, _mouseemu_last_y);
+    SDLTest_AssertCheck(SDL_PEN_MOUSEID == _mouseemu_last_mouseid,
+                        "Observed the expected mouse ID: 0x%x", _mouseemu_last_mouseid);
+    SDLTest_AssertCheck(0 == _mouseemu_last_relative,
+                        "Absolute motion event");
+    SDLTest_AssertPass("Motion emulation");
+
+    /* Test redundant motion report suppression */
+    _mouseemu_last_event = 0;
+
+    SET_POS(update, 121.00f, 110.00f);
+    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+
+    SET_POS(update, 121.95f, 110.95f);
+    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+
+    update.axes[0] = 1.0f;
+    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+
+    SET_POS(update, 121.12f, 110.70f);
+    update.axes[0] = 0.0f;
+    update.axes[1] = 0.75f;
+    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+
+    SDLTest_AssertCheck(0 == _mouseemu_last_event,
+                        "Redundant mouse motion suppressed: %d", _mouseemu_last_event);
+    SDLTest_AssertPass("Redundant motion suppression");
+
+    /* Test button press reporting */
+    for (i = 1; i < 3; ++i) {
+        SDL_SendPenButton(NULL, ptest.ids[0], SDL_PRESSED, i);
+        SDLTest_AssertCheck(SDL_MOUSEBUTTONDOWN == _mouseemu_last_event,
+                            "Mouse button press: %d", _mouseemu_last_event);
+        SDLTest_AssertCheck(i == _mouseemu_last_button,
+                            "Observed the expected simulated button: %d", _mouseemu_last_button);
+        SDLTest_AssertCheck(SDL_PEN_MOUSEID == _mouseemu_last_mouseid,
+                            "Observed the expected mouse ID: 0x%x", _mouseemu_last_mouseid);
+    }
+    SDLTest_AssertPass("Button press mouse emulation");
+
+    /* Test button release reporting */
+    for (i = 1; i < 3; ++i) {
+        SDL_SendPenButton(NULL, ptest.ids[0], SDL_RELEASED, i);
+        SDLTest_AssertCheck(SDL_MOUSEBUTTONUP == _mouseemu_last_event,
+                            "Mouse button release: %d", _mouseemu_last_event);
+        SDLTest_AssertCheck(i == _mouseemu_last_button,
+                            "Observed the expected simulated button: %d", _mouseemu_last_button);
+        SDLTest_AssertCheck(SDL_PEN_MOUSEID == _mouseemu_last_mouseid,
+                            "Observed the expected mouse ID: 0x%x", _mouseemu_last_mouseid);
+    }
+    SDLTest_AssertPass("Button release mouse emulation");
+
+    /* Cleanup */
+    SDL_PenGCMark();
+    _pen_trackGCSweep(&ptest);
+    _teardown_test(&ptest, backup);
     return TEST_COMPLETED;
 }
-#endif
+
 
 /* ================= Test References ================== */
 
@@ -914,33 +1243,23 @@ static const SDLTest_TestCaseReference penTest1 =
         { (SDLTest_TestCaseFp)pen_iteration, "pen_iteration", "Iterate over all pens with SDL_PenIDForIndex", TEST_ENABLED };
 
 static const SDLTest_TestCaseReference penTest2 =
-        { (SDLTest_TestCaseFp)pen_queries, "pen_queries", "Query pens with SDL_PenName and SDL_PenCapabilities", TEST_ENABLED };
+        { (SDLTest_TestCaseFp)pen_hotplugging, "pen_hotplugging", "Hotplug pens and validate their status, including SDL_PenAttached", TEST_ENABLED };
 
 static const SDLTest_TestCaseReference penTest3 =
-        { (SDLTest_TestCaseFp)pen_hotplugging, "pen_hotplugging", "Hotplug pens and validate their status, including SDL_PenConnected", TEST_ENABLED };
-
-static const SDLTest_TestCaseReference penTest4 =
         { (SDLTest_TestCaseFp)pen_GUIDs, "pen_GUIDs", "Check SDL_PenGUID operations", TEST_ENABLED };
 
-static const SDLTest_TestCaseReference penTest5 =
+static const SDLTest_TestCaseReference penTest4 =
         { (SDLTest_TestCaseFp)pen_buttonReporting, "pen_buttonReporting", "Check pen button presses", TEST_ENABLED };
 
+static const SDLTest_TestCaseReference penTest5 =
+        { (SDLTest_TestCaseFp)pen_movementAndAxes, "pen_movementAndAxes", "Check pen movement and axis update reporting", TEST_ENABLED };
+
 static const SDLTest_TestCaseReference penTest6 =
-        { (SDLTest_TestCaseFp)pen_movement, "pen_movement", "Check pen movement reporting", TEST_ENABLED };
-
-static const SDLTest_TestCaseReference penTest7 =
-        { (SDLTest_TestCaseFp)pen_axes, "pen_axes", "Check pen axis updates", TEST_ENABLED };
-
-static const SDLTest_TestCaseReference penTest8 =
         { (SDLTest_TestCaseFp)pen_mouseEmulation, "pen_mouseEmulation", "Check pen-as-mouse event forwarding", TEST_ENABLED };
-
-static const SDLTest_TestCaseReference penTest9 =
-        { (SDLTest_TestCaseFp)pen_status, "pen_status", "Check pen status tracking and updating via SDL_PenStatus", TEST_ENABLED };
 
 /* Sequence of Mouse test cases */
 static const SDLTest_TestCaseReference *penTests[] =  {
-    &penTest1, &penTest2, &penTest3, &penTest4, &penTest5, &penTest6,
-    &penTest7, &penTest8, &penTest9, NULL
+    &penTest1, &penTest2, &penTest3, &penTest4, &penTest5, &penTest6, NULL
 };
 
 /* Mouse test suite (global) */

@@ -31,14 +31,15 @@
 #define PEN_ERASER_ID_MAXLEN 256      /* Max # characters of device name to scan */
 #define PEN_ERASER_NAME_TAG "eraser"  /* String constant to identify erasers */
 
-#define DEBUG_PEN 0
+#define DEBUG_PEN 1
 
 
 #define SDL_PEN_AXIS_VALUATOR_MISSING   -1
 
 typedef struct xinput2_pen {
-    float valuator_min[SDL_PEN_NUM_AXES];
-    float valuator_max[SDL_PEN_NUM_AXES];
+    float axis_shift[SDL_PEN_NUM_AXES];
+    float axis_min[SDL_PEN_NUM_AXES];
+    float axis_max[SDL_PEN_NUM_AXES];
     Sint8 valuator_for_axis[SDL_PEN_NUM_AXES]; /* SDL_PEN_AXIS_VALUATOR_MISSING if not supported */
 }  xinput2_pen;
 
@@ -46,6 +47,9 @@ typedef struct xinput2_pen {
 static struct {
     int initialized;        /* initialised to 0 */
     Atom device_product_id;
+    Atom abs_pressure;
+    Atom abs_tilt_x;
+    Atom abs_tilt_y;
     Atom wacom_serial_ids;
     Atom wacom_tool_type;
 } pen_atoms;
@@ -62,6 +66,10 @@ pen_atoms_ensure_initialized(_THIS) {
     pen_atoms.device_product_id = X11_XInternAtom(data->display, "Device Product ID", False);
     pen_atoms.wacom_serial_ids = X11_XInternAtom(data->display, "Wacom Serial IDs", False);
     pen_atoms.wacom_tool_type = X11_XInternAtom(data->display, "Wacom Tool Type", False);
+    pen_atoms.abs_pressure = X11_XInternAtom(data->display, "Abs Pressure", True);
+    pen_atoms.abs_tilt_x = X11_XInternAtom(data->display, "Abs Tilt X", True);
+    pen_atoms.abs_tilt_y = X11_XInternAtom(data->display, "Abs Tilt Y", True);
+
     pen_atoms.initialized = 1;
 }
 
@@ -260,6 +268,63 @@ xinput2_merge_deviceinfo(xinput2_pen *dest, xinput2_pen *src)
     *dest = *src;
 }
 
+/**
+ * For Wacom pens: identify number of buttons and extra axis (if present)
+ *
+ * \param _this Global state
+ * \param deviceid XInput2 device ID
+ * \param[out] num_buttons Number of buttons (written only if known)
+ * \param[out] valuator_5 Meaning of the valuator with offset 5, if any
+ *   (written only if known and if the device has a 6th axis,
+ *   e.g., for the Wacom Art Pen and Wacom Airbrush Pen)
+ * \param[out] axes Bitmask of all possibly supported axes
+ * \returns SDL_TRUE if the device is a Wacom device
+ *
+ * This function identifies Wacom device types through a Wacom-specific device ID.
+ * If the device seems to be a Wacom pen/eraser but can't be identified, the function
+ * leaves "axes" untouched and sets the other outputs to common defaults.
+ */
+static SDL_bool
+xinput2_wacom_peninfo(_THIS, int deviceid, int * num_buttons, int * valuator_5, Uint32 * axes)
+{
+    Sint32 serial_id_buf[3];
+    int result;
+
+    pen_atoms_ensure_initialized(_this);
+
+    if ((result = xinput2_pen_get_int_property(_this, deviceid, pen_atoms.wacom_serial_ids, serial_id_buf, 3)) == 3) {
+        int wacom_device_id = serial_id_buf[2];
+
+#if DEBUG_PEN
+        printf("[pen] Pen %d reports Wacom device_id %x\n",
+               deviceid, wacom_device_id);
+#endif
+
+        if (SDL_WacomPenID(wacom_device_id, num_buttons, axes)) {
+            if (*axes & SDL_PEN_AXIS_THROTTLE_MASK) {
+                /* Air Brush Pen or eraser */
+                *valuator_5 = SDL_PEN_AXIS_THROTTLE;
+            } else if (*axes & SDL_PEN_AXIS_ROTATION_MASK) {
+                /* Art Pen or eraser, or 6D Art Pen */
+                *valuator_5 = SDL_PEN_AXIS_ROTATION;
+            }
+        } else {
+#if DEBUG_PEN
+            printf("[pen] Could not identify %d with %x, using default settings\n",
+                   deviceid, wacom_device_id);
+#endif
+            *num_buttons = 2;
+        }
+
+        return SDL_TRUE;
+    } else {
+#if DEBUG_PEN
+        printf("[pen] Pen %d is not a Wacom device: %d\n", deviceid, result);
+#endif
+    }
+    return SDL_FALSE;
+}
+
 void
 X11_InitPen(_THIS)
 {
@@ -267,11 +332,6 @@ X11_InitPen(_THIS)
     int i;
     XIDeviceInfo *device_info;
     int num_device_info;
-
-    /* We assume that a device is a PEN or an ERASER if it has atom_pressure: */
-    const Atom atom_pressure = X11_XInternAtom(data->display, "Abs Pressure", True);
-    const Atom atom_xtilt = X11_XInternAtom(data->display, "Abs Tilt X", True);
-    const Atom atom_ytilt = X11_XInternAtom(data->display, "Abs Tilt Y", True);
 
     device_info = X11_XIQueryDevice(data->display, XIAllDevices, &num_device_info);
     if (!device_info) {
@@ -283,20 +343,23 @@ X11_InitPen(_THIS)
     for (i = 0; i < num_device_info; ++i) {
         const XIDeviceInfo *dev = &device_info[i];
         int classct;
-        int k;
-
-        /* Check for pen or eraser and set properties suitably */
         xinput2_pen pen_device;
         Uint32 capabilities = 0;
+        Uint32 axis_mask = ~0; /* Permitted axes (default: all) */
+        int valuator_5_axis = -1; /* For Wacom devices, the 6th valuator (offset 5) has a model-specific meaning */
+        int num_buttons;
+        SDL_Pen *pen;
 
         /* Only track physical devices that are enabled */
         if (dev->use != XISlavePointer || dev->enabled == 0) {
             continue;
         }
 
-        for (k = 0; k < SDL_PEN_NUM_AXES; ++k) {
-            pen_device.valuator_for_axis[k] = SDL_PEN_AXIS_VALUATOR_MISSING;
-        }
+        pen = SDL_PenModifyBegin(dev->deviceid);
+
+        /* Complement XF86 driver information with vendor-specific details */
+        xinput2_wacom_peninfo(_this, dev->deviceid, &num_buttons, &valuator_5_axis, &axis_mask);
+        pen->num_buttons = num_buttons;
 
         /* printf("Device %d name = '%s'\n", dev->deviceid, dev->name); */
         for (classct = 0; classct < dev->num_classes; ++classct) {
@@ -305,24 +368,42 @@ X11_InitPen(_THIS)
             switch (classinfo->type) {
             case XIValuatorClass: {
                 XIValuatorClassInfo *val_classinfo = (XIValuatorClassInfo*) classinfo;
+                Sint8 valuator_nr = val_classinfo->number;
                 Atom vname = val_classinfo->label;
                 int axis = -1;
+                SDL_bool force_positive_axis = SDL_FALSE;
 
-                if (vname == atom_pressure) {
+                if (vname == pen_atoms.abs_pressure) {
                     axis = SDL_PEN_AXIS_PRESSURE;
-                } else if (vname == atom_xtilt) {
+                } else if (vname == pen_atoms.abs_tilt_x) {
                     axis = SDL_PEN_AXIS_XTILT;
-                } else if (vname == atom_ytilt) {
+                } else if (vname == pen_atoms.abs_tilt_y) {
                     axis = SDL_PEN_AXIS_YTILT;
                 }
 
+                if (axis == -1 && valuator_nr == 5) {
+                    /* Wacom model-specific axis support */
+                    axis = valuator_5_axis;
+
+                    /* cf. xinput2_wacom_peninfo for how this axis is used.
+                       In all current cases, our API wants this value in 0..1, but the xf86 driver
+                       starts at a negative offset, so we normalise here. */
+
+                    force_positive_axis = SDL_TRUE;
+                }
+
                 if (axis >= 0) {
-                    Sint8 valuator_nr = val_classinfo->number;
+                    float min = val_classinfo->min;
+                    float max = val_classinfo->max;
+                    float shift = (force_positive_axis) ? -val_classinfo->min : 0.0f;
                     capabilities |= SDL_PEN_AXIS_CAPABILITY(axis);
 
                     pen_device.valuator_for_axis[axis] = valuator_nr;
-                    pen_device.valuator_min[axis] = val_classinfo->min;
-                    pen_device.valuator_max[axis] = val_classinfo->max;
+                    pen_device.axis_min[axis] = min;
+                    pen_device.axis_max[axis] = max;
+                    pen_device.axis_shift[axis] = shift;
+                    pen->axis_negative_info[axis] = min + shift;
+                    pen->axis_positive_info[axis] = max + shift;
                 }
                 break;
             }
@@ -333,36 +414,44 @@ X11_InitPen(_THIS)
 
         /* We have a pen if and only if the device measures pressure */
         if (capabilities & SDL_PEN_AXIS_PRESSURE_MASK) {
-            SDL_PenID penid = { dev->deviceid };
-            SDL_PenGUID guid = xinput2_pen_get_guid(_this, dev->deviceid);
-            SDL_Pen *pen;
             xinput2_pen *xinput2_deviceinfo;
 
+            pen->guid = xinput2_pen_get_guid(_this, dev->deviceid);
+
             if (xinput2_pen_is_eraser(_this, dev->deviceid, dev->name)) {
-                capabilities |= SDL_PEN_ERASER_MASK;
+                pen->type = SDL_PEN_TYPE_ERASER;
             } else {
-                capabilities |= SDL_PEN_INK_MASK;
+                pen->type = SDL_PEN_TYPE_PEN;
             }
 
-            pen = SDL_PenRegister(penid, guid, dev->name, capabilities);
-            if (!pen->deviceinfo) {
-                pen->deviceinfo = xinput2_deviceinfo = SDL_malloc(sizeof(xinput2_pen));
-                SDL_memcpy(xinput2_deviceinfo, &pen_device, sizeof(xinput2_pen));
-            } else {
+            /* Done collecting data, write to pen */
+            SDL_PenModifyAddCapabilities(pen, capabilities);
+            SDL_strlcpy(pen->name, dev->name, SDL_PEN_MAX_NAME);
+
+            if (pen->deviceinfo) {
+                /* Updating a known pen */
                 xinput2_deviceinfo = (xinput2_pen*) pen->deviceinfo;
                 xinput2_merge_deviceinfo(xinput2_deviceinfo, &pen_device);
+            } else {
+                /* Registering a new pen */
+                xinput2_deviceinfo = SDL_malloc(sizeof(xinput2_pen));
+                SDL_memcpy(xinput2_deviceinfo, &pen_device, sizeof(xinput2_pen));
             }
+            pen->deviceinfo = xinput2_deviceinfo;
 
-            /* Done collecting data, write to device info */
 #if DEBUG_PEN
             printf("[pen] pen %d [%04x] valuators pressure=%d, xtilt=%d, ytilt=%d [%s]\n",
-                   pen->id.id, pen->flags,
+                   pen->header.id.id, pen->header.flags,
                    pen_device.valuator_for_axis[SDL_PEN_AXIS_PRESSURE],
                    pen_device.valuator_for_axis[SDL_PEN_AXIS_XTILT],
                    pen_device.valuator_for_axis[SDL_PEN_AXIS_YTILT],
                    pen->name);
 #endif
+        } else {
+            /* Mark for deletion */
+            pen->type = SDL_PEN_TYPE_NONE;
         }
+        SDL_PenModifyEnd(pen, SDL_TRUE);
 
     }
     X11_XIFreeDeviceInfo(device_info);
@@ -378,11 +467,11 @@ xinput2_normalise_pen_axes(const xinput2_pen *pen,
 
     /* Normalise axes */
     for (axis = 0; axis < SDL_PEN_NUM_AXES; ++axis) {
-        if (pen->valuator_for_axis[axis] != SDL_PEN_AXIS_VALUATOR_MISSING) {
-            float value = coords[axis];
-
-            float min = pen->valuator_min[axis];
-            float max = pen->valuator_max[axis];
+        int valuator = pen->valuator_for_axis[axis];
+        if (valuator != SDL_PEN_AXIS_VALUATOR_MISSING) {
+            float value = coords[axis] + pen->axis_shift[axis];
+            float min = pen->axis_min[axis];
+            float max = pen->axis_max[axis];
 
             /* min ... 0 ... max */
             if (min < 0.0) {
@@ -390,10 +479,10 @@ xinput2_normalise_pen_axes(const xinput2_pen *pen,
                 if (value < 0) {
                     value = value / (-min);
                 } else {
-                    if (max != 0.0) {
-                        value = value / max;
-                    } else {
+                    if (max == 0.0) {
                         value = 0.0f;
+                    } else {
+                        value = value / max;
                     }
                 }
             } else {

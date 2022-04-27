@@ -27,51 +27,190 @@
 #include "SDL_mouse_c.h"
 #include "../../include/SDL_pen.h"
 
-#define SDL_PEN_MAX_NAME 128
+#define SDL_PEN_TYPE_NONE         0 /**< Pen type for non-pens (use to cancel pen registration) */
 
-#define SDL_PEN_FLAG_INACTIVE (1ul << 30) /* Detached (not re-registered before last SDL_PenGCSweep()) */
+#define SDL_PEN_MAX_NAME 64
+
+#define SDL_PEN_FLAG_NEW      (1ul << 29) /* Pen was registered in most recent call to SDL_PenRegisterBegin() */
+#define SDL_PEN_FLAG_DETACHED (1ul << 30) /* Detached (not re-registered before last SDL_PenGCSweep()) */
 #define SDL_PEN_FLAG_STALE    (1ul << 31) /* Not re-registered since last SDL_PenGCMark() */
 
+typedef struct SDL_PenStatusInfo {
+    float x, y;
+    float axes[SDL_PEN_NUM_AXES];
+    Uint32 buttons;              /* SDL_BUTTON(1) | SDL_BUTTON(2) | ... */
+} SDL_PenStatusInfo;
+
+/**
+ * Internal (backend driver-independent) pen representation
+ *
+ * Implementation-specific backend drivers may read and write most of this structure, and
+ * are expected to initialise parts of it when registering a new pen.  They must not write
+ * to the "header" section.
+ */
 typedef struct SDL_Pen {
-    SDL_PenID id;      /* PenID determines sort order */
-    Uint32 flags;      /* capabilities */
-    SDL_PenGUID guid;
-    Uint32 last_status;
-    float last_x, last_y;
-    float last_axes[SDL_PEN_NUM_AXES];
-    char name[SDL_PEN_MAX_NAME];
+    /* Backend driver MUST NOT not write to: */
+    struct SDL_Pen_header {
+        SDL_PenID id;            /* id determines sort order unless SDL_PEN_FLAG_DETACHED is set */
+        Uint32 flags;            /* SDL_PEN_FLAG_* | SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_* */
+    } header;
+
+    SDL_PenStatusInfo last;      /* Last reported status, normally read-only for backend */
+
+    /* Backend: MUST initialise this block when pen is first registered: */
+    SDL_PenGUID guid;            /* GUID, MUST be set by backend.
+                                    MUST be unique (no other pen ID with same GUID).
+                                    SHOULD be persistent across sessions. */
+
+    /* Backend: SHOULD initialise this block when pen is first registered if it can
+       Otherwise: Set to sane default values during SDL_PenModifyEnd()
+       Wacom note: FIXME  */
+    Uint8 num_buttons;           /* Number of physical on/off pen buttons (not counting the pressure-sensitive tip) */
+    Uint8 type;                  /* SDL_PEN_TYPE_* */
+    int axis_negative_info[SDL_PEN_NUM_AXES]; /* Meta-information, cf. ::SDL_PenAxisInfo() */
+    int axis_positive_info[SDL_PEN_NUM_AXES]; /* Meta-information, cf. ::SDL_PenAxisInfo() */
+    char name[SDL_PEN_MAX_NAME]; /* Set via SDL_strlcpy(dest, src SDL_PEN_MAX_NAME) */
+
     void *deviceinfo;  /* implementation-specific information */
 } SDL_Pen;
 
+/* ---- API for backend driver only ---- */
 
+/**
+ * (Only for backend driver) Look up a pen by pen ID
+ *
+ * \param penid_id A Uint32 pen identifier (driver-dependent meaning).  Must not be 0 = SDL_PEN_ID_INVALID.
+ *
+ * The pen pointer is only valid until the next call to SDL_
+ *
+ * \return pen, if it exists, or NULL
+ */
 extern SDL_Pen * SDL_GetPen(Uint32 penid_id);
 
-/* Mark all current pens for garbage collection.
-   To handle a hotplug event in a pen implementation:
-   - SDL_PenGCMark()
-   - SDL_PenRegister() for all pens (this will retain existing state for old pens)
-   - SDL_PenGCSweep()  (will now delete all pens that were not re-registered).  */
+/**
+ * (Only for backend driver) Start registering a new pen or updating an existing pen.
+ *
+ * Pen updates MUST NOT run concurrently with event processing.
+ *
+ * If the PenID already exists, returns the existing entry.  Otherwise initialise fresh SDL_Pen.
+ * For new pens, sets SDL_PEN_FLAG_NEW.
+ *
+ * Usage:
+ * - SDL_PenModifyStart()
+ * - update pen object, in any order:
+ *     - SDL_PenModifyAddCapabilities()
+ *     - pen->guid (MUST be set for new pens
+ *     - pen->num_buttons
+ *     - pen->type
+ *     - pen->axis_negative_info
+ *     - pen->axis_positive_info
+ *     - pen->name
+ *     - pen->deviceinfo (backend-specific)
+ * - SDL_PenModifyEnd()
+ *
+ * For new pens, sets defaults for:
+ *   - num_buttons (SDL_PEN_INFO_UNKNOWN)
+ *   - pen_type (SDL_PEN_TYPE_PEN)
+ *   - axis_negative_info (SDL_PEN_INFO_UNKNOWN if axis is bidirectional, else 0)
+ *     - SDL_PEN_AXIS_THROTTLE counts as bidirectional by default
+ *   - axis_positive_info (SDL_PEN_INFO_UNKNOWN)
+ *
+ * \param penid_id Pen ID to allocate (must not be 0 = SDL_PEN_ID_INVALID)
+ * \returns SDL_Pen pointer; only valid until the call to SDL_PenModifyEnd()
+ */
+extern SDL_Pen * SDL_PenModifyBegin(Uint32 penid_id);
+
+/**
+ * (Only for backend driver) Add capabilities to a pen (cf. SDL_PenModifyBegin()).
+ *
+ * Adds capabilities to a pen obtained via SDL_PenModifyBegin().  Can be called more than once.
+ *
+ * \param pen The pen to update
+ * \param capabilities Capabilities flags, out of: SDL_PEN_AXIS_*
+ */
+extern void SDL_PenModifyAddCapabilities(SDL_Pen * pen, Uint32 capabilities);
+
+/**
+ * (Only for backend driver) Finish updating a pen.
+ *
+ * If pen->type == SDL_PEN_TYPE_NONE, removes the pen entirely (only
+ * for new pens).  This allows backends to start registering a
+ * potential pen device and to abort if the device turns out to not be
+ * a pen.
+ *
+ * For new pens, this call will also set the following:
+ *   - backend.axis_negative_info: zero disabled axes
+ *   - backend.axis_positive_info: zero disabled axes
+ *   - name (default name, if not yet set)
+ *
+ * \param pen The pen to register.  That pointer is no longer valid after this call.
+ * \param attach Whether the pen should be attached (SDL_TRUE) or detached (SDL_FALSE).
+ *
+ * If the pen is detached or removed, it is the caller's responsibility to free
+ * and null "deviceinfo".
+ */
+extern void SDL_PenModifyEnd(SDL_Pen * pen, SDL_bool attach);
+
+/**
+ * (Only for backend driver) Mark all current pens for garbage collection.
+ *
+ * SDL_PenGCMark() / SDL_PenGCSweep() provide a simple mechanism for
+ * detaching all known pens that are not discoverable.  This allows
+ * backends to use the same code for pen discovery and for
+ * hotplugging:
+ *
+ *  - SDL_PenGCMark() and start backend-specific discovery
+ *  - for each discovered pen: SDL_PenModifyBegin() + SDL_PenModifyEnd() (this will retain existing state)
+ *  - SDL_PenGCSweep()  (will now detach all pens that were not re-registered).
+ */
 extern void SDL_PenGCMark(void);
 
-/* Register a pen with the pen API.
-   - If the PenID already exists, overwrite name, guid, and capabilities
-   - Otherwise initialise fresh SDL_Pen
-   The returned SDL_Pen pointer is only valid until the next call to SDL_PenGCSweep. */
-extern SDL_Pen * SDL_PenRegister(SDL_PenID id, SDL_PenGUID guid, char *name, Uint32 capabilities);
-
-/* Free memory associated with all remaining stale pens and marks them inactive.
-   Calls "free_deviceinfo" on non-NULL deviceinfo that should be deallocated.
-   "context" is optional and passed on to free_deviceinfo, unaltered.
-*/
+/**
+ * (Only for backend driver) Detach pens that haven't been reported attached since the last call to SDL_PenGCMark().
+ *
+ * See SDL_PenGCMark() for details.
+ *
+ * \param context Extra parameter to pass through to "free_deviceinfo"
+ * \param free_deviceinfo Operation to call on any non-NULL "backend.deviceinfo".
+ *
+ * \sa SDL_PenGCMark()
+ */
 extern void SDL_PenGCSweep(void *context, void (*free_deviceinfo)(Uint32 penid_id, void* deviceinfo, void *context));
 
+/**
+ * (Only for backend driver) Send a pen motion event.
+ *
+ * Suppresses pen motion events that do not change the current pen state.
+ * May also send a mouse motion event, if mouse emulation is enabled and the pen position has
+ * changed sufficiently for the motion to be visible to mouse event listeners.
+ *
+ * \param window Window to report in
+ * \param penid Pen
+ * \param window_relative Coordinates are already window-relative
+ * \param status Coordinates and axes (buttons are ignored)
+ *
+ * \returns SDL_TRUE if at least one event was sent
+ */
+extern int SDL_SendPenMotion(SDL_Window * window, SDL_PenID penid, SDL_bool window_relative, const SDL_PenStatusInfo * status);
 
-/* Send a pen motion event. Can be reported either relative to window or absolute to screen. */
-extern int SDL_SendPenMotion(SDL_Window * window, SDL_PenID, SDL_bool window_relative, float x, float y, const float axes[SDL_PEN_NUM_AXES]);
+/**
+ * (Only for backend driver) Send a pen button event.
+ *
+ * \param window Window to report in
+ * \param penid Pen
+ * \param state SDL_PRESSED or SDL_RELEASED
+ * \param button Button number: 1 (pen tip), 2 (first physical button) etc.
+ */
+extern int SDL_SendPenButton(SDL_Window * window, SDL_PenID penID, Uint8 state, Uint8 button);
 
-/* Send a pen motion event. (x,y) = (axes[0],axes[1]), axes[2:] are the SDL_PEN_NUMAXIS axes.  is_relative indicates whether window-relative or screen-absolute.. */
-extern int SDL_SendPenButton(SDL_Window * window, SDL_PenID penID, Uint8 state, Uint8 button, SDL_bool window_relative, float x, float y, const float axes[SDL_PEN_NUM_AXES]);
+/**
+ * \returns SDL_TRUE if the device ID could be identified
+ */
+extern int SDL_PenInitFromWacomID(SDL_Pen *pen, int wacom_deviceid);
 
+/**
+ * Initialises the pen subsystem
+ */
 extern int SDL_PenInit(void);
 
 #endif /* SDL_pen_c_h_ */

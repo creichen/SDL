@@ -244,17 +244,12 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
 
             if (pen) {
                 const SDL_Mouse *mouse = SDL_GetMouse();
-                float pen_axes[SDL_PEN_NUM_AXES];
 
-                X11_PenAxesFromValuators(pen,
-                                         xev->valuators.values, xev->valuators.mask, xev->valuators.mask_len,
-                                         pen_axes);
-                SDL_SendPenButton(mouse->focus, pen->id,
+                /* Only report button event; if there was also pen movement / pressure changes, we expect
+                   an XI_Motion event first anyway */
+                SDL_SendPenButton(mouse->focus, pen->header.id,
                                   pressed ? SDL_PRESSED : SDL_RELEASED,
-                                  button,
-                                  SDL_TRUE,
-                                  xev->event_x, xev->event_y,
-                                  pen_axes);
+                                  button);
                 return 1;
             } else {
                     /* Otherwise assume a regular mouse */
@@ -290,17 +285,19 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
             }
 
             if (pen) {
-                float pen_axes[SDL_PEN_NUM_AXES];
+                SDL_PenStatusInfo pen_status;
                 const SDL_Mouse *mouse = SDL_GetMouse();
+
+                pen_status.x = xev->event_x;
+                pen_status.y = xev->event_y;
 
                 X11_PenAxesFromValuators(pen,
                                          xev->valuators.values, xev->valuators.mask, xev->valuators.mask_len,
-                                         pen_axes);
+                                         &pen_status.axes[0]);
 
-                SDL_SendPenMotion(mouse->focus, pen->id,
+                SDL_SendPenMotion(mouse->focus, pen->header.id,
                                   SDL_TRUE,
-                                  xev->event_x, xev->event_y,
-                                  pen_axes);
+                                  &pen_status);
                 return 1;
             }
 

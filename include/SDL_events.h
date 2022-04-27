@@ -546,7 +546,7 @@ typedef struct SDL_PenMotionEvent
     Uint32 windowID;    /**< The window with pen focus, if any */
     SDL_PenID which;    /**< The pen instance id */
     Uint16 padding1;
-    Uint16 pen_state;   /**< Pen button msks (where SDL_BUTTON_LMASK is the pen tip). ::SDL_PEN_ERASER_MASK identifies if the event is from an. */
+    Uint16 pen_state;   /**< Pen button msks (where SDL_BUTTON_LMASK is the pen tip). ::SDL_PEN_ERASER_MASK is set if the pen is (used as) an eraser. */
     float x;            /**< X coordinate, relative to window */
     float y;            /**< Y coordinate, relative to window */
     float axes[SDL_PEN_NUM_AXES];   /**< Pen axes such as pressure and tilt (\link SDL_PEN_AXES \endlink) */
@@ -563,7 +563,7 @@ typedef struct SDL_PenButtonEvent
     SDL_PenID which;    /**< The pen instance id */
     Uint8 button;       /**< The pen button index (1 represents the pen tip for compatibility with mouse events) */
     Uint8 state;        /**< ::SDL_PRESSED or ::SDL_RELEASED */
-    Uint16 pen_state;   /**< Pen button msks (where SDL_BUTTON_LMASK is the pen tip). ::SDL_PEN_ERASER_MASK identifies if the event is from an. */
+    Uint16 pen_state;   /**< Pen button msks (where SDL_BUTTON_LMASK is the pen tip). ::SDL_PEN_ERASER_MASK is set if the pen is (used as) an eraser. */
     float x;            /**< X coordinate, relative to window */
     float y;            /**< Y coordinate, relative to window */
     float axes[SDL_PEN_NUM_AXES]; /**< Pen axes such as pressure and tilt (\link SDL_PEN_AXES \endlink) */

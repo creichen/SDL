@@ -98,14 +98,17 @@ dump_state()
         float axes[SDL_PEN_NUM_AXES];
         float x, y;
         int k;
+        int num_buttons;
         Uint32 status = SDL_PenStatus(penid, &x, &y, axes, SDL_PEN_NUM_AXES);
+        Uint32 capabilities = SDL_PenCapabilities(penid, &num_buttons);
 
         SDL_PenStringForGUID(guid, guid_str, 33);
 
-        SDL_Log("Pen %d: [%s] connected=%d [cap= %08x:%08x =status] '%s'\n",
+        SDL_Log("Pen %d: [%s] attached=%d, %d button(s) [cap= %08x:%08x =status] '%s'\n",
                 penid.id, guid_str,
-                SDL_PenConnected(penid),
-                SDL_PenCapabilities(penid),
+                SDL_PenAttached(penid), /* should always be SDL_TRUE during iteration */
+                num_buttons,
+                capabilities,
                 status,
                 SDL_PenName(penid)
             );
