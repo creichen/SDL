@@ -107,8 +107,8 @@ xinput2_pen_get_int_property(_THIS, int deviceid, Atom property, Sint32* dest, s
                                      XA_INTEGER, &type_return, &format_return,
                                      &num_items_return, &bytes_after_return,
                                      &output)
-	|| num_items_return == 0
-	|| output == NULL) {
+        || num_items_return == 0
+        || output == NULL) {
         return 0;
     }
 
@@ -216,11 +216,11 @@ xinput2_pen_is_eraser(_THIS, int deviceid, char* devicename)
                                          AnyPropertyType, &type_return, &format_return,
                                          &num_items_return, &bytes_after_return,
                                          &tooltype_name_info)
-	    && tooltype_name_info != NULL
-	    && num_items_return > 0) {
+            && tooltype_name_info != NULL
+            && num_items_return > 0) {
 
-	    SDL_bool result = SDL_FALSE;
-	    char *tooltype_name = NULL;
+            SDL_bool result = SDL_FALSE;
+            char *tooltype_name = NULL;
 
             if (type_return == XA_ATOM) {
                 /* Atom instead of string?  Un-intern */
@@ -232,14 +232,14 @@ xinput2_pen_is_eraser(_THIS, int deviceid, char* devicename)
                 tooltype_name = (char*) tooltype_name_info;
             }
 
-	    if (tooltype_name) {
-		if (0 == SDL_strcasecmp(tooltype_name, PEN_ERASER_NAME_TAG)) {
-		    result = SDL_TRUE;
-		}
-		X11_XFree(tooltype_name_info);
+            if (tooltype_name) {
+                if (0 == SDL_strcasecmp(tooltype_name, PEN_ERASER_NAME_TAG)) {
+                    result = SDL_TRUE;
+                }
+                X11_XFree(tooltype_name_info);
 
-		return result;
-	    }
+                return result;
+            }
         }
     }
     /* Non-Wacom device? */
@@ -285,7 +285,7 @@ xinput2_merge_deviceinfo(xinput2_pen *dest, xinput2_pen *src)
  * leaves "axes" untouched and sets the other outputs to common defaults.
  */
 static SDL_bool
-xinput2_wacom_peninfo(_THIS, int deviceid, int * num_buttons, int * valuator_5, Uint32 * axes)
+xinput2_wacom_peninfo(_THIS, SDL_Pen *pen, int deviceid, int * valuator_5, Uint32 * axes)
 {
     Sint32 serial_id_buf[3];
     int result;
@@ -293,14 +293,15 @@ xinput2_wacom_peninfo(_THIS, int deviceid, int * num_buttons, int * valuator_5, 
     pen_atoms_ensure_initialized(_this);
 
     if ((result = xinput2_pen_get_int_property(_this, deviceid, pen_atoms.wacom_serial_ids, serial_id_buf, 3)) == 3) {
-        int wacom_device_id = serial_id_buf[2];
+        Uint32 wacom_devicetype_id = serial_id_buf[2];
+        Uint32 wacom_serial = serial_id_buf[1];
 
 #if DEBUG_PEN
         printf("[pen] Pen %d reports Wacom device_id %x\n",
-               deviceid, wacom_device_id);
+               deviceid, wacom_devicetype_id);
 #endif
 
-        if (SDL_WacomPenID(wacom_device_id, num_buttons, axes)) {
+        if (SDL_PenModifyFromWacomID(pen, wacom_devicetype_id, wacom_serial, axes)) {
             if (*axes & SDL_PEN_AXIS_THROTTLE_MASK) {
                 /* Air Brush Pen or eraser */
                 *valuator_5 = SDL_PEN_AXIS_THROTTLE;
@@ -311,9 +312,8 @@ xinput2_wacom_peninfo(_THIS, int deviceid, int * num_buttons, int * valuator_5, 
         } else {
 #if DEBUG_PEN
             printf("[pen] Could not identify %d with %x, using default settings\n",
-                   deviceid, wacom_device_id);
+                   deviceid, wacom_devicetype_id);
 #endif
-            *num_buttons = 2;
         }
 
         return SDL_TRUE;
@@ -347,7 +347,6 @@ X11_InitPen(_THIS)
         Uint32 capabilities = 0;
         Uint32 axis_mask = ~0; /* Permitted axes (default: all) */
         int valuator_5_axis = -1; /* For Wacom devices, the 6th valuator (offset 5) has a model-specific meaning */
-        int num_buttons;
         SDL_Pen *pen;
 
         /* Only track physical devices that are enabled */
@@ -358,8 +357,7 @@ X11_InitPen(_THIS)
         pen = SDL_PenModifyBegin(dev->deviceid);
 
         /* Complement XF86 driver information with vendor-specific details */
-        xinput2_wacom_peninfo(_this, dev->deviceid, &num_buttons, &valuator_5_axis, &axis_mask);
-        pen->num_buttons = num_buttons;
+        xinput2_wacom_peninfo(_this, pen, dev->deviceid, &valuator_5_axis, &axis_mask);
 
         /* printf("Device %d name = '%s'\n", dev->deviceid, dev->name); */
         for (classct = 0; classct < dev->num_classes; ++classct) {

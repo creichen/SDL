@@ -107,8 +107,6 @@ AM_PATH_SDL2($SDL_VERSION,
 )
 CFLAGS="$CFLAGS $SDL_CFLAGS"
 LIBS="$LIBS -lSDL2_test $SDL_LIBS"
-LIBS_STATIC="-l:libSDL2.a"
-AC_SUBST(LIBS_STATIC)
 
 dnl Check for X11 path, needed for OpenGL on some systems
 AC_PATH_X

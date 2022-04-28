@@ -63,9 +63,8 @@ typedef struct SDL_Pen {
                                     SHOULD be persistent across sessions. */
 
     /* Backend: SHOULD initialise this block when pen is first registered if it can
-       Otherwise: Set to sane default values during SDL_PenModifyEnd()
-       Wacom note: FIXME  */
-    Uint8 num_buttons;           /* Number of physical on/off pen buttons (not counting the pressure-sensitive tip) */
+       Otherwise: Set to sane default values during SDL_PenModifyEnd() */
+    Sint8 num_buttons;           /* Number of physical on/off pen buttons (not counting the pressure-sensitive tip) */
     Uint8 type;                  /* SDL_PEN_TYPE_* */
     int axis_negative_info[SDL_PEN_NUM_AXES]; /* Meta-information, cf. ::SDL_PenAxisInfo() */
     int axis_positive_info[SDL_PEN_NUM_AXES]; /* Meta-information, cf. ::SDL_PenAxisInfo() */
@@ -99,7 +98,7 @@ extern SDL_Pen * SDL_GetPen(Uint32 penid_id);
  * - SDL_PenModifyStart()
  * - update pen object, in any order:
  *     - SDL_PenModifyAddCapabilities()
- *     - pen->guid (MUST be set for new pens
+ *     - pen->guid (MUST be set for new pens)
  *     - pen->num_buttons
  *     - pen->type
  *     - pen->axis_negative_info
@@ -129,6 +128,28 @@ extern SDL_Pen * SDL_PenModifyBegin(Uint32 penid_id);
  * \param capabilities Capabilities flags, out of: SDL_PEN_AXIS_*
  */
 extern void SDL_PenModifyAddCapabilities(SDL_Pen * pen, Uint32 capabilities);
+
+/**
+ * Set up a pen structure for a Wacom device.
+ *
+ * Some backends (e.g., XInput2, Wayland) can only partially identify the capabilities of a given
+ * pen but can identify Wacom pens and obtain their Wacom-specific device type identifiers.
+ * This function partly automates device setup in those cases.
+ *
+ * It fills in "pen->guid", as well as all other fields that are uninitialised.
+ *
+ * This function does NOT call SDL_PenModifyAddCapabilities() ifself, since some backends may
+ * not have access to all pen axes (e.g., Xinput2).
+ *
+ * \param pen The pen to initialise
+ * \param wacom_devicetype_id The Wacom-specific device type identifier
+ * \param wacoms_erial_id The Wacom-specific serial number (written to "pen->guid" but otherwise ignored)
+ * \param axis_flags[out] The set of physically supported axes for this pen, suitable for passing to
+ *    SDL_PenModifyAddCapabilities()
+ *
+ * \returns SDL_TRUE if the device ID could be identified, otherwise SDL_FALSE
+ */
+extern int SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 wacom_serial_id, Uint32 * axis_flags);
 
 /**
  * (Only for backend driver) Finish updating a pen.
@@ -202,11 +223,6 @@ extern int SDL_SendPenMotion(SDL_Window * window, SDL_PenID penid, SDL_bool wind
  * \param button Button number: 1 (pen tip), 2 (first physical button) etc.
  */
 extern int SDL_SendPenButton(SDL_Window * window, SDL_PenID penID, Uint8 state, Uint8 button);
-
-/**
- * \returns SDL_TRUE if the device ID could be identified
- */
-extern int SDL_PenInitFromWacomID(SDL_Pen *pen, int wacom_deviceid);
 
 /**
  * Initialises the pen subsystem

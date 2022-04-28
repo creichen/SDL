@@ -66,7 +66,7 @@ typedef SDL_JoystickGUID SDL_PenGUID;   /**< UUID for pens, suitable for pesisti
 
 #define SDL_PEN_MOUSEID ((Uint32)-2)    /**< Device ID for mouse events triggered by pen events */
 
-#define SDL_PEN_INFO_UNKNOWN -1         /**< Marks unknown information when querying the pen */
+#define SDL_PEN_INFO_UNKNOWN (-1)       /**< Marks unknown information when querying the pen */
 
 /**
  * \defgroup SDL_PEN_AXES Pen axis indices
@@ -110,6 +110,9 @@ typedef SDL_JoystickGUID SDL_PenGUID;   /**< UUID for pens, suitable for pesisti
 #define SDL_PEN_AXIS_DISTANCE_MASK  SDL_PEN_AXIS_CAPABILITY(SDL_PEN_AXIS_DISTANCE)    /**< Pen provides distance to drawing tablet in ::SDL_PEN_AXIS_DISTANCE */
 #define SDL_PEN_AXIS_ROTATION_MASK  SDL_PEN_AXIS_CAPABILITY(SDL_PEN_AXIS_ROTATION)    /**< Pen provides barrel rotation information in axis ::SDL_PEN_AXIS_ROTATION */
 #define SDL_PEN_AXIS_THROTTLE_MASK  SDL_PEN_AXIS_CAPABILITY(SDL_PEN_AXIS_THROTTLE)    /**< Pen provides pressure-sensitive button / throttle / wheel in axis ::SDL_PEN_AXIS_THROTTLE */
+
+#define SDL_PEN_AXIS_BIDIRECTIONAL_MASKS (SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK | SDL_PEN_AXIS_THROTTLE_MASK)
+	/**< Masks for all axes that may be bidirectional */
 /** @} */
 
 
@@ -166,6 +169,26 @@ extern DECLSPEC int SDLCALL SDL_NumPens(void);
  * \sa SDL_NumPens()
  */
 extern DECLSPEC SDL_PenID SDLCALL SDL_PenIDForIndex(int device_index);
+
+/**
+ * Retrieves the pen's current status.
+ *
+ * If the pen is detached (cf. ::SDL_PenAttached), this operation may return
+ * default values.
+ *
+ * \param pen The pen to query.
+ * \param[out] x Out-mode parameter for pen x coordinate.  May be NULL.
+ * \param[out] y Out-mode parameter for pen y coordinate.  May be NULL.
+ * \param[out] axes Out-mode parameter for axis information.  May be null.  The axes are in the same order as for
+ *     \link SDL_PEN_AXES \endlink.
+ * \param num_axes Maximum number of axes to write to "axes".
+ *
+ * \returns a bit mask with the current pen button states (::SDL_BUTTON_LMASK etc.) and exactly one of
+ *     ::SDL_PEN_INK_MASK or ::SDL_PEN_ERASER_MASK , or 0 on error (see ::SDL_GetError()).
+ *
+ * \since This function is available since SDL 2.TBD
+ */
+extern DECLSPEC Uint32 SDLCALL SDL_PenStatus(SDL_PenID pen, float * x, float * y, float * axes, size_t num_axes);
 
 /**
  * Retrieves an ::SDL_PenID for the given ::SDL_PenGUID.
@@ -276,26 +299,6 @@ extern DECLSPEC Uint32 SDLCALL SDL_PenCapabilities(SDL_PenID pen, int * num_butt
 extern DECLSPEC Uint32 SDLCALL SDL_PenType(SDL_PenID pen);
 
 /**
- * Retrieves the pen's current status.
- *
- * If the pen is detached (cf. ::SDL_PenAttached), this operation may return
- * default values.
- *
- * \param pen The pen to query.
- * \param[out] x Out-mode parameter for pen x coordinate.  May be NULL.
- * \param[out] y Out-mode parameter for pen y coordinate.  May be NULL.
- * \param[out] axes Out-mode parameter for axis information.  May be null.  The axes are in the same order as for
- *     \link SDL_PEN_AXES \endlink.
- * \param num_axes Maximum number of axes to write to "axes".
- *
- * \returns a bit mask with the current pen button states (::SDL_BUTTON_LMASK etc.) and exactly one of
- *     ::SDL_PEN_INK_MASK or ::SDL_PEN_ERASER_MASK , or 0 on error (see ::SDL_GetError()).
- *
- * \since This function is available since SDL 2.TBD
- */
-extern DECLSPEC Uint32 SDLCALL SDL_PenStatus(SDL_PenID pen, float * x, float * y, float * axes, size_t num_axes);
-
-/**
  * Retrieves detail information about support for a given axis on a given pen.
  *
  * If the pen is detached (cf. ::SDL_PenAttached), this operation may return
@@ -317,7 +320,7 @@ extern DECLSPEC Uint32 SDLCALL SDL_PenStatus(SDL_PenID pen, float * x, float * y
  *     This will always agree with ::SDL_PenCapabilities .
  *
  * For ::SDL_PEN_AXIS_XTILT and  ::SDL_PEN_AXIS_YTILT , the reported ranges are the pen's maximum tilt degree
- * (i.e., the degrees that correspond to an axis value of 1.0 or -1.0).
+ * (i.e., the physical pen tilt that correspond to an axis value of 1.0 or -1.0).
  *
  * For all other axes, the reported ranges indicate the pen's precision.
  *
