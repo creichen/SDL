@@ -2,6 +2,19 @@
 This is a list of major changes in SDL's version history.
 
 ---------------------------------------------------------------------------
+2.0.24:
+---------------------------------------------------------------------------
+
+General:
+* Added SDL_bsearch() to the stdlib routines
+* Added functions to get the platform dependent name for a joystick or game controller:
+    * SDL_JoystickPathForIndex()
+    * SDL_JoystickPath()
+    * SDL_GameControllerPathForIndex()
+    * SDL_GameControllerPath()
+* Added joystick event SDL_JOYBATTERYUPDATED for when battery status changes.
+
+---------------------------------------------------------------------------
 2.0.22:
 ---------------------------------------------------------------------------
 
@@ -11,6 +24,7 @@ General:
     * SDL_PointInFRect()
     * SDL_FRectEmpty()
     * SDL_FRectEquals()
+    * SDL_FRectEqualsEpsilon()
     * SDL_HasIntersectionF()
     * SDL_IntersectFRect()
     * SDL_UnionFRect()
@@ -30,7 +44,9 @@ Windows:
 * Added support for SDL_BLENDOPERATION_MINIMUM and SDL_BLENDOPERATION_MAXIMUM to the D3D9 renderer
 
 Linux:
+* Compiling with Wayland support requires libwayland-client version 1.18.0 or later
 * Added the hint SDL_HINT_X11_WINDOW_TYPE to specify the _NET_WM_WINDOW_TYPE of SDL windows
+* Added the hint SDL_HINT_VIDEO_WAYLAND_PREFER_LIBDECOR to allow using libdecor with compositors that support xdg-decoration
 
 Android:
 * Added SDL_AndroidSendMessage() to send a custom command to the SDL java activity
