@@ -13,10 +13,10 @@
 #include "../src/events/SDL_pen.c"
 
 #define SDLTest_AssertEq1(TY, FMT, EXPECTED, ACTUAL, MESSAGE, ARG0) { \
-	TY _t_expect = (EXPECTED);					\
-	TY _t_actual = (ACTUAL);					\
-	SDLTest_AssertCheck(_t_expect == _t_actual, "L%d: " MESSAGE ": expected " #EXPECTED " = "FMT", actual = "FMT, __LINE__, (ARG0), _t_expect, _t_actual); \
-    }									\
+        TY _t_expect = (EXPECTED);                                      \
+        TY _t_actual = (ACTUAL);                                        \
+        SDLTest_AssertCheck(_t_expect == _t_actual, "L%d: " MESSAGE ": expected " #EXPECTED " = "FMT", actual = "FMT, __LINE__, (ARG0), _t_expect, _t_actual); \
+    }                                                                   \
 
 /* ================= Internal SDL API Compatibility ================== */
 /* Mock implementations of Pen -> Mouse calls */
@@ -446,11 +446,11 @@ _pen_simulate(simulated_pen_action *steps, int *step_counter, SDL_Pen *simulated
             SDLTest_AssertCheck(SDL_SendPenMotion(NULL, simpen->header.id, SDL_TRUE,
                                                   &simpen->last),
                                 "SIMPEN_ACTION_MOTION_EVENT [pen %d]", step.pen_index);
-	    break;
+            break;
 
-	case SIMPEN_ACTION_MOTION_EVENT_S:
+        case SIMPEN_ACTION_MOTION_EVENT_S:
             SDLTest_AssertCheck(!SDL_SendPenMotion(NULL, simpen->header.id, SDL_TRUE,
-						   &simpen->last),
+                                                   &simpen->last),
                                 "SIMPEN_ACTION_MOTION_EVENT_SUPPRESSED [pen %d]", step.pen_index);
             break;
 
@@ -647,12 +647,12 @@ _expect_pens_attached_or_detached(SDL_PenID *pen_ids, int ids, Uint32 mask)
     int i;
     int attached_count = 0;
     for (i = 0; i < ids; ++i) {
-	if (mask & (1 << i)) {
-	    ++attached_count;
-	    _expect_pen_attached(pen_ids[i]);
-	} else {
-	    _expect_pen_detached(pen_ids[i]);
-	}
+        if (mask & (1 << i)) {
+            ++attached_count;
+            _expect_pen_attached(pen_ids[i]);
+        } else {
+            _expect_pen_detached(pen_ids[i]);
+        }
     }
     _AssertCheck_num_pens(attached_count, "While checking attached/detached status");
 }
@@ -876,15 +876,16 @@ pen_buttonReporting(void *arg)
     float axes[SDL_PEN_NUM_AXES + 1];
     const float expected_x[2] = { 10.0f, 20.0f };
     const float expected_y[2] = { 11.0f, 21.0f };
+    const Uint32 all_axes = SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK | SDL_PEN_AXIS_DISTANCE_MASK | SDL_PEN_AXIS_ROTATION_MASK | SDL_PEN_AXIS_THROTTLE_MASK; 
 
     /* Register pen */
     deviceinfo_backup *backup = _setup_test(&ptest, 2);
     SDL_PenGCMark();
     _pen_setDeviceinfo(_pen_register(ptest.ids[0], ptest.guids[0], "test pen",
-                                       SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT | SDL_PEN_AXIS_YTILT),
+				     SDL_PEN_INK_MASK | all_axes),
                        20);
     _pen_setDeviceinfo(_pen_register(ptest.ids[1], ptest.guids[1], "test eraser",
-                                       SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT | SDL_PEN_AXIS_YTILT),
+				     SDL_PEN_ERASER_MASK | all_axes),
                        24);
     _pen_trackGCSweep(&ptest);
 
@@ -934,6 +935,16 @@ pen_buttonReporting(void *arg)
                                         event.pbutton.x, event.pbutton.y, expected_x[pen_nr], expected_y[pen_nr]);
                     SDLTest_AssertCheck(0 == SDL_memcmp(expected_axes, event.pbutton.axes, sizeof(float) * SDL_PEN_NUM_AXES),
                                         "Received SDL_PENBUTTONDOWN event with correct axis values");
+		    if (0 != SDL_memcmp(expected_axes, event.pbutton.axes, sizeof(float) * SDL_PEN_NUM_AXES)) {
+			int ax;
+			for (ax = 0; ax < SDL_PEN_NUM_AXES; ++ax) {
+			    fprintf(stderr, "\tax %d\t%.5f\t%.5f expected (equal=%d)\n",
+				    ax,
+				    event.pbutton.axes[ax], expected_axes[ax],
+				    event.pbutton.axes[ax] == expected_axes[ax]
+				);
+			}
+		    }
                     found_event = SDL_TRUE;
                 }
             }
@@ -1012,9 +1023,9 @@ pen_movementAndAxes(void *arg)
         SIMPEN_AXIS(0, 2, 0.5f),
         SIMPEN_EVENT_MOTION(0),
 
-	/* #2: Check that motion events without motion aren't reported */
-	SIMPEN_EVENT_MOTION_SUPPRESSED(0),
-	SIMPEN_EVENT_MOTION_SUPPRESSED(0),
+        /* #2: Check that motion events without motion aren't reported */
+        SIMPEN_EVENT_MOTION_SUPPRESSED(0),
+        SIMPEN_EVENT_MOTION_SUPPRESSED(0),
 
         /* #3: Check multiple pens being reported */
         /* Move pen and touch surface, don't tilt */
@@ -1065,6 +1076,10 @@ pen_movementAndAxes(void *arg)
         SIMPEN_EVENT_BUTTON(0, 0, 3),
         SIMPEN_EVENT_BUTTON(0, 0, 4),
 
+	/* #9: Suppress move on unsupported axis */
+        SIMPEN_AXIS(1, 3, -0.25f),
+        SIMPEN_EVENT_MOTION_SUPPRESSED(0),
+
         SIMPEN_DONE()
     };
     SDL_Pen simulated_pens[2];
@@ -1077,10 +1092,10 @@ pen_movementAndAxes(void *arg)
 
     SDL_PenGCMark();
     _pen_setDeviceinfo(_pen_register(ptest.ids[0], ptest.guids[0], "test eraser",
-                                       SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT | SDL_PEN_AXIS_YTILT),
+                                       SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK),
                        20);
     _pen_setDeviceinfo(_pen_register(ptest.ids[1], ptest.guids[1], "test pen",
-                                       SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT | SDL_PEN_AXIS_YTILT),
+                                       SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK),
                        24);
     _pen_trackGCSweep(&ptest);
     while (SDL_PollEvent(&event)); /* Flush event queue */
@@ -1192,69 +1207,29 @@ pen_movementAndAxes(void *arg)
 
 static void
 _expect_pen_config(SDL_PenID penid,
-		   SDL_PenGUID expected_guid,
-		   SDL_bool expected_attached,
-		   char *expected_name,
-		   int expected_type,
-		   int expected_num_buttons,
-		   int expected_axes,
-		   /* nonobvious axis info */
-		   int pressure_precision,
-		   int left_angle,
-		   int right_angle,
-		   int left_throttle,
-		   int right_throttle) {
+                   SDL_PenGUID expected_guid,
+                   SDL_bool expected_attached,
+                   char *expected_name,
+                   int expected_type,
+                   int expected_num_buttons,
+		   int expected_max_tilt,
+                   int expected_axes)
+{
     int i;
-    int actual_num_buttons;
+    SDL_PenCapabilityInfo actual_info;
     int expected_neg[SDL_PEN_NUM_AXES];
     int expected_pos[SDL_PEN_NUM_AXES];
     const char *actual_name = SDL_PenName(penid);
 
     SDLTest_AssertEq1(int, "%d", 0, SDL_PenGUIDCompare(expected_guid, SDL_PenGUIDForPenID(penid)), "Pen %d guid equality", penid.id);
     SDLTest_AssertCheck(0 == SDL_strcmp(expected_name, actual_name),
-			"Expected name='%s' vs actual='%s'", expected_name, actual_name);
+                        "Expected name='%s' vs actual='%s'", expected_name, actual_name);
 
     SDLTest_AssertEq1(int, "%d", expected_attached, SDL_PenAttached(penid), "Pen %d is attached", penid.id);
     SDLTest_AssertEq1(int, "%d", expected_type, SDL_PenType(penid), "Pen %d type", penid.id);
-    SDLTest_AssertEq1(int, "%x", expected_axes, SDL_PenCapabilities(penid, &actual_num_buttons), "Pen %d axis flags", penid.id);
-    SDLTest_AssertEq1(int, "%d", expected_num_buttons, actual_num_buttons, "Pen %d number of buttons", penid.id);
-    SDLTest_AssertEq1(int, "%d", expected_num_buttons, actual_num_buttons, "Pen %d number of buttons", penid.id);
-
-    for (i = 0; i < SDL_PEN_NUM_AXES; ++i) {
-	const int supported = expected_axes & (SDL_PEN_AXIS_CAPABILITY(i));
-	const int bidirectional = SDL_PEN_AXIS_BIDIRECTIONAL_MASKS & (SDL_PEN_AXIS_CAPABILITY(i));
-	const int expected = supported ? SDL_PEN_INFO_UNKNOWN : 0;
-
-	expected_neg[i] = bidirectional ? expected : 0;
-	expected_pos[i] = expected;
-    }
-    if (expected_axes & SDL_PEN_AXIS_PRESSURE_MASK) {
-	expected_pos[SDL_PEN_AXIS_PRESSURE] = pressure_precision;
-    }
-    if (expected_axes & SDL_PEN_AXIS_XTILT_MASK) {
-	expected_neg[SDL_PEN_AXIS_XTILT] = left_angle;
-	expected_pos[SDL_PEN_AXIS_XTILT] = right_angle;
-    }
-    if (expected_axes & SDL_PEN_AXIS_YTILT_MASK) {
-	expected_neg[SDL_PEN_AXIS_YTILT] = left_angle;
-	expected_pos[SDL_PEN_AXIS_YTILT] = right_angle;
-    }
-    if (expected_axes & SDL_PEN_AXIS_THROTTLE_MASK) {
-	expected_neg[SDL_PEN_AXIS_THROTTLE] = left_throttle;
-	expected_pos[SDL_PEN_AXIS_THROTTLE] = right_throttle;
-    }
-
-    for (i = 0; i < SDL_PEN_NUM_AXES; ++i) {
-	int neg;
-	int pos;
-	SDL_bool expected = (expected_axes & SDL_PEN_AXIS_CAPABILITY(i)) ? SDL_TRUE : SDL_FALSE;
-
-	SDLTest_AssertEq1(int, "%d", expected, SDL_PenAxisInfo(penid, i, &neg, &pos), "Axis info result", i);
-	if (expected) {
-	    SDLTest_AssertEq1(int, "%d", expected_neg[i], neg, "Axis %d info (negative)", i);
-	    SDLTest_AssertEq1(int, "%d", expected_pos[i], pos, "Axis %d info (positive)", i);
-	}
-    }
+    SDLTest_AssertEq1(int, "%x", expected_axes, SDL_PenCapabilities(penid, &actual_info), "Pen %d axis flags", penid.id);
+    SDLTest_AssertEq1(int, "%d", expected_num_buttons, actual_info.num_buttons, "Pen %d number of buttons", penid.id);
+    SDLTest_AssertEq1(int, "%d", expected_max_tilt, actual_info.max_tilt, "Pen %d max tilt", penid.id);
 }
 
 /**
@@ -1281,16 +1256,12 @@ pen_initAndInfo(void *arg)
     /* Register completely default pen */
     pen = SDL_PenModifyBegin(ptest.ids[0].id);
     SDL_memcpy(pen->guid.data, ptest.guids[0].data, sizeof(ptest.guids[0].data));
-    fprintf(stderr, "---------------modify end ---- \n");
     SDL_PenModifyEnd(pen, SDL_TRUE);
 
     sprintf(strbuf, "Pen %d", ptest.ids[0]);
     _expect_pen_config(ptest.ids[0], ptest.guids[0], SDL_TRUE,
-		       strbuf, SDL_PEN_TYPE_PEN, SDL_PEN_INFO_UNKNOWN,
-		       SDL_PEN_INK_MASK,
-		       /* pressure */ 0,
-		       /* angles */   0, 0,
-		       /* throttle */ 0, 0);
+                       strbuf, SDL_PEN_TYPE_PEN, SDL_PEN_INFO_UNKNOWN, 0,
+                       SDL_PEN_INK_MASK);
     _expect_pens_attached_or_detached(ptest.ids, 7, ATTACHED(0));
     SDLTest_AssertPass("Pass #1: default pen");
 
@@ -1300,15 +1271,12 @@ pen_initAndInfo(void *arg)
     SDL_memcpy(pen->guid.data, ptest.guids[1].data, sizeof(ptest.guids[1].data));
     SDL_strlcpy(strbuf, "My special test pen", SDL_PEN_MAX_NAME);
     SDL_strlcpy(pen->name, strbuf, SDL_PEN_MAX_NAME);
-    pen->num_buttons = 7;
+    pen->info.num_buttons = 7;
     SDL_PenModifyEnd(pen, SDL_TRUE);
 
     _expect_pen_config(ptest.ids[1], ptest.guids[1], SDL_TRUE,
-		       strbuf, SDL_PEN_TYPE_PEN, 7,
-		       SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK,
-		       /* pressure */ SDL_PEN_INFO_UNKNOWN,
-		       /* angles */   0, 0,
-		       /* throttle */ 0, 0);
+                       strbuf, SDL_PEN_TYPE_PEN, 7, 0,
+                       SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK);
     _expect_pens_attached_or_detached(ptest.ids, 7, ATTACHED(0) | ATTACHED(1));
     SDLTest_AssertPass("Pass #2: default pen with button and name info");
 
@@ -1321,20 +1289,14 @@ pen_initAndInfo(void *arg)
 
     sprintf(strbuf, "Eraser %d", ptest.ids[2]);
     _expect_pen_config(ptest.ids[2], ptest.guids[2], SDL_FALSE,
-		       strbuf, SDL_PEN_TYPE_ERASER, SDL_PEN_INFO_UNKNOWN,
-		       SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK,
-		       /* pressure */ 0,
-		       /* angles */   SDL_PEN_INFO_UNKNOWN, SDL_PEN_INFO_UNKNOWN,
-		       /* throttle */ 0, 0);
+                       strbuf, SDL_PEN_TYPE_ERASER, SDL_PEN_INFO_UNKNOWN, SDL_PEN_INFO_UNKNOWN,
+                       SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK);
     _expect_pens_attached_or_detached(ptest.ids, 7, ATTACHED(0) | ATTACHED(1));
     /* now make available */
     SDL_PenModifyEnd(SDL_PenModifyBegin(ptest.ids[2].id), SDL_TRUE);
     _expect_pen_config(ptest.ids[2], ptest.guids[2], SDL_TRUE,
-		       strbuf, SDL_PEN_TYPE_ERASER, SDL_PEN_INFO_UNKNOWN,
-		       SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK,
-		       /* pressure */ 0,
-		       /* angles */   SDL_PEN_INFO_UNKNOWN, SDL_PEN_INFO_UNKNOWN,
-		       /* throttle */ 0, 0);
+                       strbuf, SDL_PEN_TYPE_ERASER, SDL_PEN_INFO_UNKNOWN, SDL_PEN_INFO_UNKNOWN,
+                       SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK);
     _expect_pens_attached_or_detached(ptest.ids, 7, ATTACHED(0) | ATTACHED(1) | ATTACHED(2));
     SDLTest_AssertPass("Pass #3: eraser-type pen initially detached, then attached");
 
@@ -1353,51 +1315,42 @@ pen_initAndInfo(void *arg)
     SDL_memcpy(pen->guid.data, ptest.guids[4].data, sizeof(ptest.guids[4].data));
     SDL_strlcpy(pen->name, "Testish Brush", SDL_PEN_MAX_NAME);
     pen->type = SDL_PEN_TYPE_BRUSH;
-    pen->num_buttons = 1;
-    SDL_PenModifyAddCapabilities(pen, SDL_PEN_AXIS_XTILT_MASK);
-    pen->axis_negative_info[SDL_PEN_AXIS_XTILT] = 89;
-    pen->axis_positive_info[SDL_PEN_AXIS_XTILT] = 88;
+    pen->info.num_buttons = 1;
     SDL_PenModifyAddCapabilities(pen, SDL_PEN_AXIS_ROTATION_MASK);
-    pen->axis_positive_info[SDL_PEN_AXIS_PRESSURE] = 42;
+    pen->info.max_tilt = 89;
+    SDL_PenModifyAddCapabilities(pen, SDL_PEN_AXIS_XTILT_MASK);
     SDL_PenModifyAddCapabilities(pen, SDL_PEN_AXIS_PRESSURE_MASK);
     SDL_PenModifyEnd(pen, SDL_TRUE);
     _expect_pen_config(ptest.ids[4], ptest.guids[4], SDL_TRUE,
-		       "Testish Brush", SDL_PEN_TYPE_BRUSH, 1,
-		       SDL_PEN_INK_MASK | SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_ROTATION_MASK | SDL_PEN_AXIS_PRESSURE_MASK,
-		       /* pressure */ 42,
-		       /* angles */   89, 88,
-		       /* throttle */ 0, 0);
+                       "Testish Brush", SDL_PEN_TYPE_BRUSH, 1, 89,
+                       SDL_PEN_INK_MASK | SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_ROTATION_MASK | SDL_PEN_AXIS_PRESSURE_MASK);
     _expect_pens_attached_or_detached(ptest.ids, 7, ATTACHED(0) | ATTACHED(1) | ATTACHED(2) | ATTACHED(4));
     SDLTest_AssertPass("Pass #5: brush-type pen with unusual axis layout");
 
     /* Wacom airbrush pen */
     {
-	const Uint32 wacom_type_id   = 0x0912;
-	const Uint32 wacom_serial_id = 0xa0b1c2d3;
-	SDL_PenGUID guid = { {
-		(wacom_serial_id >>  0) & 0xff,
-		(wacom_serial_id >>  8) & 0xff,
-		(wacom_serial_id >> 16) & 0xff,
-		(wacom_serial_id >> 24) & 0xff,
-		(wacom_type_id >>  0) & 0xff,
-		(wacom_type_id >>  8) & 0xff,
-		(wacom_type_id >> 16) & 0xff,
-		(wacom_type_id >> 24) & 0xff,
-		'W', 'A', 'C', 'M',
-		0, 0, 0, 0 } };
+        const Uint32 wacom_type_id   = 0x0912;
+        const Uint32 wacom_serial_id = 0xa0b1c2d3;
+        SDL_PenGUID guid = { {
+                (wacom_serial_id >>  0) & 0xff,
+                (wacom_serial_id >>  8) & 0xff,
+                (wacom_serial_id >> 16) & 0xff,
+                (wacom_serial_id >> 24) & 0xff,
+                (wacom_type_id >>  0) & 0xff,
+                (wacom_type_id >>  8) & 0xff,
+                (wacom_type_id >> 16) & 0xff,
+                (wacom_type_id >> 24) & 0xff,
+                'W', 'A', 'C', 'M',
+                0, 0, 0, 0 } };
 
-	pen = SDL_PenModifyBegin(ptest.ids[5].id);
-	pen->axis_positive_info[SDL_PEN_AXIS_PRESSURE] = 2048;
-	SDL_PenModifyFromWacomID(pen, wacom_type_id, wacom_serial_id, &mask);
-	SDL_PenModifyAddCapabilities(pen, mask);
-	SDL_PenModifyEnd(pen, SDL_TRUE);
-	_expect_pen_config(ptest.ids[5], guid, SDL_TRUE,
-			   "Wacom Airbrush Pen", SDL_PEN_TYPE_AIRBRUSH, 1,
-			   SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK | SDL_PEN_AXIS_DISTANCE_MASK | SDL_PEN_AXIS_THROTTLE_MASK,
-			   /* pressure */ 2048,
-			   /* angles */   64, 63,
-			   /* throttle */ 0, SDL_PEN_INFO_UNKNOWN);
-	_expect_pens_attached_or_detached(ptest.ids, 7, ATTACHED(0) | ATTACHED(1) | ATTACHED(2) | ATTACHED(4) | ATTACHED(5));
+        pen = SDL_PenModifyBegin(ptest.ids[5].id);
+        SDL_PenModifyFromWacomID(pen, wacom_type_id, wacom_serial_id, &mask);
+        SDL_PenModifyAddCapabilities(pen, mask);
+        SDL_PenModifyEnd(pen, SDL_TRUE);
+        _expect_pen_config(ptest.ids[5], guid, SDL_TRUE,
+                           "Wacom Airbrush Pen", SDL_PEN_TYPE_AIRBRUSH, 1, 64,
+                           SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK | SDL_PEN_AXIS_DISTANCE_MASK | SDL_PEN_AXIS_THROTTLE_MASK);
+        _expect_pens_attached_or_detached(ptest.ids, 7, ATTACHED(0) | ATTACHED(1) | ATTACHED(2) | ATTACHED(4) | ATTACHED(5));
     }
     SDLTest_AssertPass("Pass #6: wacom airbrush pen");
 

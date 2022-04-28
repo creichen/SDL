@@ -950,6 +950,6 @@ SDL_DYNAPI_PROC(void,SDL_PenStringForGUID,(SDL_PenGUID a, char *b, int c),(a,b,c
 SDL_DYNAPI_PROC(SDL_PenGUID,SDL_PenGUIDForString,(const char *a),(a),return)
 SDL_DYNAPI_PROC(const char*,SDL_PenName,(SDL_PenID a),(a),return)
 SDL_DYNAPI_PROC(SDL_bool,SDL_PenAttached,(SDL_PenID a),(a),return)
-SDL_DYNAPI_PROC(SDL_bool,SDL_PenAxisInfo,(SDL_PenID a, int b, int *c, int *d),(a,b,c,d),return)
-SDL_DYNAPI_PROC(Uint32,SDL_PenCapabilities,(SDL_PenID a, int *b),(a,b),return)
 SDL_DYNAPI_PROC(Uint32,SDL_PenStatus,(SDL_PenID a, float *b, float *c, float *d, size_t e),(a,b,c,d,e),return)
+SDL_DYNAPI_PROC(Uint32,SDL_PenType,(SDL_PenID a),(a),return)
+SDL_DYNAPI_PROC(Uint32,SDL_PenCapabilities,(SDL_PenID a, SDL_PenCapabilityInfo *b),(a,b),return)

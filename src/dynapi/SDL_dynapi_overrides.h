@@ -878,8 +878,8 @@
 #define SDL_PenStringForGUID SDL_PenStringForGUID_REAL
 #define SDL_PenGUIDForString SDL_PenGUIDForString_REAL
 #define SDL_PenName SDL_PenName_REAL
-#define SDL_PenCapabilities SDL_PenCapabilities_REAL
 #define SDL_PenStatus SDL_PenStatus_REAL
 #define SDL_PenAttached SDL_PenAttached_REAL
-#define SDL_PenAxisInfo SDL_PenAxisInfo_REAL
 #define SDL_PenStatus SDL_PenStatus_REAL
+#define SDL_PenType SDL_PenType_REAL
+#define SDL_PenCapabilities SDL_PenCapabilities_REAL

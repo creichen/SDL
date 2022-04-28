@@ -31,7 +31,7 @@
 #define PEN_ERASER_ID_MAXLEN 256      /* Max # characters of device name to scan */
 #define PEN_ERASER_NAME_TAG "eraser"  /* String constant to identify erasers */
 
-#define DEBUG_PEN 1
+#define DEBUG_PEN 0
 
 
 #define SDL_PEN_AXIS_VALUATOR_MISSING   -1
@@ -71,18 +71,6 @@ pen_atoms_ensure_initialized(_THIS) {
     pen_atoms.abs_tilt_y = X11_XInternAtom(data->display, "Abs Tilt Y", True);
 
     pen_atoms.initialized = 1;
-}
-
-void
-SDL_PenGetGUIDString(SDL_PenGUID guid, char* dest, int maxlen)
-{
-    unsigned int k;
-    size_t available = (SDL_max(0, maxlen - 1) >> 1); /* number bytes we can serialise */
-    size_t to_write = SDL_min(available, sizeof(guid.data));
-
-    for (k = 0; k < to_write; ++k) {
-        sprintf(dest + (k * 2), "%02x", guid.data[k]);
-    }
 }
 
 /* Read out an integer property and store into a preallocated Sint32 array, extending 8 and 16 bit values suitably.
@@ -150,45 +138,15 @@ xinput2_pen_evdevid(_THIS, int deviceid)
 }
 
 
-/* Gets unique device ID (which will be shared for pen / eraser pairs) */
+/* Gets unique generic device ID */
 static SDL_PenGUID
-xinput2_pen_get_guid(_THIS, int deviceid)
+xinput2_pen_get_generic_guid(_THIS, int deviceid)
 {
     SDL_PenGUID guid;
     Uint32 evdevid = xinput2_pen_evdevid(_this, deviceid); /* also initialises pen_atoms  */
+    SDL_memset(guid.data, 0, sizeof(guid));
+    SDL_memcpy(guid.data, &evdevid, 4);
 
-    Uint32 guid_words_base[sizeof(guid.data) / sizeof(Uint32)];
-    Uint32 *guid_words = guid_words_base;
-    const size_t guid_words_total = sizeof(guid.data) / sizeof(Uint32);
-    Uint32 *guid_words_end = guid_words + guid_words_total;
-
-    /* pen_atoms was initialised by xinput2_pen_evdevid() earlier */
-    Atom vendor_guid_properties[] = { /* List of vendor-specific GUID sources */
-        /* Atom must not be None */
-        pen_atoms.wacom_serial_ids,
-        None /* terminator */
-    };
-    Atom *vendor_guid_it;
-
-    SDL_memset(guid_words, 0, sizeof(guid));
-
-    /* Always put the evdevid in the first four bytes */
-    *guid_words = evdevid;
-    guid_words += 1;
-
-    /* XInput2 does not offer a general-purpose GUID, so we try vendor-specific GUID information */
-    for (vendor_guid_it = vendor_guid_properties;
-         guid_words_end != guid_words /* space left? */
-             && *vendor_guid_it != None;
-         ++vendor_guid_it) {
-
-        const Atom property = *vendor_guid_it;
-        const int words_written = xinput2_pen_get_int_property(_this, deviceid, property, (Sint32 *) guid_words, guid_words_end - guid_words);
-
-        guid_words += words_written;
-    }
-
-    memcpy(guid.data, guid_words_base, sizeof(guid_words_base));
     return guid;
 }
 
@@ -272,8 +230,8 @@ xinput2_merge_deviceinfo(xinput2_pen *dest, xinput2_pen *src)
  * For Wacom pens: identify number of buttons and extra axis (if present)
  *
  * \param _this Global state
+ * \param pen The pen to initialise
  * \param deviceid XInput2 device ID
- * \param[out] num_buttons Number of buttons (written only if known)
  * \param[out] valuator_5 Meaning of the valuator with offset 5, if any
  *   (written only if known and if the device has a 6th axis,
  *   e.g., for the Wacom Art Pen and Wacom Airbrush Pen)
@@ -281,6 +239,7 @@ xinput2_merge_deviceinfo(xinput2_pen *dest, xinput2_pen *src)
  * \returns SDL_TRUE if the device is a Wacom device
  *
  * This function identifies Wacom device types through a Wacom-specific device ID.
+ * It then fills in pen details from an internal database.
  * If the device seems to be a Wacom pen/eraser but can't be identified, the function
  * leaves "axes" untouched and sets the other outputs to common defaults.
  */
@@ -348,6 +307,7 @@ X11_InitPen(_THIS)
         Uint32 axis_mask = ~0; /* Permitted axes (default: all) */
         int valuator_5_axis = -1; /* For Wacom devices, the 6th valuator (offset 5) has a model-specific meaning */
         SDL_Pen *pen;
+	SDL_bool have_vendor_guid = SDL_FALSE;
 
         /* Only track physical devices that are enabled */
         if (dev->use != XISlavePointer || dev->enabled == 0) {
@@ -357,9 +317,8 @@ X11_InitPen(_THIS)
         pen = SDL_PenModifyBegin(dev->deviceid);
 
         /* Complement XF86 driver information with vendor-specific details */
-        xinput2_wacom_peninfo(_this, pen, dev->deviceid, &valuator_5_axis, &axis_mask);
+        have_vendor_guid = xinput2_wacom_peninfo(_this, pen, dev->deviceid, &valuator_5_axis, &axis_mask);
 
-        /* printf("Device %d name = '%s'\n", dev->deviceid, dev->name); */
         for (classct = 0; classct < dev->num_classes; ++classct) {
             const XIAnyClassInfo *classinfo = dev->classes[classct];
 
@@ -400,8 +359,10 @@ X11_InitPen(_THIS)
                     pen_device.axis_min[axis] = min;
                     pen_device.axis_max[axis] = max;
                     pen_device.axis_shift[axis] = shift;
-                    pen->axis_negative_info[axis] = min + shift;
-                    pen->axis_positive_info[axis] = max + shift;
+		    if (axis == SDL_PEN_AXIS_XTILT
+			|| axis == SDL_PEN_AXIS_YTILT) {
+			pen->info.max_tilt = (Sint8) (-min > max) ? -min : max;
+		    }
                 }
                 break;
             }
@@ -414,7 +375,9 @@ X11_InitPen(_THIS)
         if (capabilities & SDL_PEN_AXIS_PRESSURE_MASK) {
             xinput2_pen *xinput2_deviceinfo;
 
-            pen->guid = xinput2_pen_get_guid(_this, dev->deviceid);
+	    if (!have_vendor_guid) {
+		pen->guid = xinput2_pen_get_generic_guid(_this, dev->deviceid);
+	    }
 
             if (xinput2_pen_is_eraser(_this, dev->deviceid, dev->name)) {
                 pen->type = SDL_PEN_TYPE_ERASER;

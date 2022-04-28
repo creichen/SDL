@@ -98,48 +98,69 @@ dump_state()
         float axes[SDL_PEN_NUM_AXES];
         float x, y;
         int k;
-        int num_buttons;
+        SDL_PenCapabilityInfo info;
         Uint32 status = SDL_PenStatus(penid, &x, &y, axes, SDL_PEN_NUM_AXES);
-        Uint32 capabilities = SDL_PenCapabilities(penid, &num_buttons);
+        Uint32 capabilities = SDL_PenCapabilities(penid, &info);
+	char *type;
+	char buttons_str[32];
 
         SDL_PenStringForGUID(guid, guid_str, 33);
 
-        SDL_Log("Pen %d: [%s] attached=%d, %d button(s) [cap= %08x:%08x =status] '%s'\n",
+	switch (SDL_PenType(penid)) {
+	case SDL_PEN_TYPE_ERASER:
+		type = "Eraser";
+		break;
+	case SDL_PEN_TYPE_PEN:
+		type = "Pen";
+		break;
+	case SDL_PEN_TYPE_PENCIL:
+		type = "Pencil";
+		break;
+	case SDL_PEN_TYPE_BRUSH:
+		type = "Brush";
+		break;
+	case SDL_PEN_TYPE_AIRBRUSH:
+		type = "Airbrush";
+		break;
+	default:
+		type = "Unknown (bug?)";
+	}
+
+	switch (info.num_buttons) {
+	case SDL_PEN_INFO_UNKNOWN:
+	    SDL_strlcpy(buttons_str, "? buttons", 32);
+	    break;
+	case 1:
+	    SDL_strlcpy(buttons_str, "1 button", 32);
+	    break;
+	default:
+	    sprintf(buttons_str, "%d buttons", info.num_buttons);
+	    break;
+	}
+
+        SDL_Log("%s %d: [%s] attached=%d, %s [cap= %08x:%08x =status] '%s'\n",
+		type,
                 penid.id, guid_str,
                 SDL_PenAttached(penid), /* should always be SDL_TRUE during iteration */
-                num_buttons,
+		buttons_str,
                 capabilities,
                 status,
                 SDL_PenName(penid)
             );
         SDL_Log("   pos=(%.2f, %.2f)", x, y);
         for (k = 0; k < SDL_PEN_NUM_AXES; ++k) {
-            SDL_Log("   axis %d:  %.3f", k, axes[k]);
-        }
-        if (SDL_PenGUIDCompare(guid, guid) != 0) {
-            SDL_Log("   ERROR: PenGUIDCompare\n");
-        }
-        guid2 = SDL_PenGUIDForPenID(penid);
-        if (SDL_PenGUIDCompare(guid, guid2) != 0) {
-            SDL_Log("   ERROR: PenGUIDForPenID() consistency\n");
-        }
-        if (SDL_PenGUIDCompare(guid, SDL_PenGUIDForString(guid_str)) != 0) {
-            SDL_Log("   ERROR: PenGUIDCompare or PenGUIDForString\n");
-        }
-        if (SDL_PenIDForGUID(guid).id != penid.id) {
-            SDL_Log("   ERROR: PenIDForGUID\n");
-        }
-
-        guid2.data[15] = 0;
-        guid.data[15] = 1;
-        if (SDL_PenGUIDCompare(guid2, guid) >= 0) {
-            SDL_Log("   ERROR: PenGUIDCompare(smaller, bigger) = %d \n",
-                    SDL_PenGUIDCompare(guid2, guid));
-        }
-        if (SDL_PenGUIDCompare(guid, guid2) <= 0) {
-            SDL_Log("   ERROR: PenGUIDCompare(bigger, smaller) = %d \n",
-                    SDL_PenGUIDCompare(guid, guid2));
-        }
+	    SDL_bool supported = capabilities & SDL_PEN_AXIS_CAPABILITY(k);
+	    if (supported) {
+		if (k == SDL_PEN_AXIS_XTILT || k == SDL_PEN_AXIS_YTILT) {
+		    SDL_Log("   axis %d:  %.3f (tilt -%d..%d degrees)", k, axes[k],
+			    info.max_tilt, info.max_tilt);
+		} else {
+		    SDL_Log("   axis %d:  %.3f", k, axes[k]);
+		}
+	    } else {
+		SDL_Log("   axis %d:  unsupported (%.3f)", k, axes[k]);
+	    }
+	}
     }
 }
 
@@ -158,19 +179,19 @@ process_event(SDL_Event event)
     case SDL_MOUSEBUTTONUP:
 #if VERBOSE
     {   int x, y;
-	SDL_GetMouseState(&x, &y);
-	if (event.type == SDL_MOUSEMOTION) {
-	    SDL_Log("mouse motion: mouse ID %d is at %d,%d  (state: %d,%d) delta (%d, %d)\n",
-		    event.motion.which,
-		    event.motion.x, event.motion.y,
-		    event.motion.xrel, event.motion.yrel,
-		    x, y);
-	} else {
-	    SDL_Log("mouse button: mouse ID %d is at %d,%d  (state: %d,%d)\n",
-		    event.button.which,
-		    event.button.x, event.button.y,
-		    x, y);
-	}
+        SDL_GetMouseState(&x, &y);
+        if (event.type == SDL_MOUSEMOTION) {
+            SDL_Log("mouse motion: mouse ID %d is at %d,%d  (state: %d,%d) delta (%d, %d)\n",
+                    event.motion.which,
+                    event.motion.x, event.motion.y,
+                    event.motion.xrel, event.motion.yrel,
+                    x, y);
+        } else {
+            SDL_Log("mouse button: mouse ID %d is at %d,%d  (state: %d,%d)\n",
+                    event.button.which,
+                    event.button.x, event.button.y,
+                    x, y);
+        }
     }
 #endif
         if (event.motion.which != SDL_PEN_MOUSEID) {

@@ -88,30 +88,22 @@ pen_compare(const SDL_Pen *lhs, const SDL_Pen *rhs)
     return lhs->header.id.id - rhs->header.id.id;
 }
 
-/* binary search for pen */ /* FIXME: replace by SDL_bsearch() once available */
-static SDL_Pen*
-pen_bsearch(Uint32 penid_id, SDL_Pen *pens, size_t size)
+static int
+pen_header_compare(const void *lhs, const void *rhs)
 {
-    while (size) {
-        size_t midpoint = size >> 1;
-        Uint32 midpoint_penid_id = pens[midpoint].header.id.id;
+    const struct SDL_Pen_header *l = lhs;
+    const struct SDL_Pen_header *r = rhs;
+    int l_detached = l->flags & SDL_PEN_FLAG_DETACHED;
+    int r_detached = r->flags & SDL_PEN_FLAG_DETACHED;
 
-        if (pens[midpoint].header.flags & SDL_PEN_FLAG_DETACHED) {
-            /* We only search for active pens here. */
-            size = midpoint;
-            continue;
+    if (l_detached != r_detached) {
+        if (l_detached) {
+            return -1;
         }
-
-        if (midpoint_penid_id == penid_id) {
-            return &pens[midpoint];
-        } else if (midpoint_penid_id < penid_id) {
-            pens += midpoint + 1;
-            size -= midpoint + 1; /* mindpoint < size, since size >= 1 */
-        } else {
-            size = midpoint;
-        }
+        return 1;
     }
-    return NULL;
+
+    return l->id.id - r->id.id;
 }
 
 SDL_Pen *
@@ -124,7 +116,11 @@ SDL_GetPen(Uint32 penid_id)
     }
 
     if (pen_handler.sorted) {
-        SDL_Pen *pen = pen_bsearch(penid_id, pen_handler.pens, pen_handler.pens_known);
+        //SDL_Pen *pen = pen_bsearch(penid_id, pen_handler.pens, pen_handler.pens_known);
+        struct SDL_Pen_header key = { { penid_id }, 0 };
+        SDL_Pen *pen = SDL_bsearch(&key, pen_handler.pens,
+                                   pen_handler.pens_known, sizeof(SDL_Pen),
+                                   pen_header_compare);
         if (pen) {
             return pen;
         }
@@ -210,31 +206,13 @@ SDL_PenType(SDL_PenID penid)
 }
 
 Uint32
-SDL_PenCapabilities(SDL_PenID penid, int * num_buttons)
+SDL_PenCapabilities(SDL_PenID penid, SDL_PenCapabilityInfo * info)
 {
     PEN_LOAD(pen, penid, 0u);
-    if (num_buttons) {
-        *num_buttons = pen->num_buttons;
+    if (info) {
+        *info = pen->info;
     }
     return pen->header.flags & PEN_FLAGS_CAPABILITIES;
-}
-
-SDL_bool
-SDL_PenAxisInfo(SDL_PenID penid, int pen_axis, int * negative_range, int * positive_range)
-{
-    PEN_LOAD(pen, penid, SDL_FALSE);
-    if (pen_axis >= 0
-        && pen_axis <= SDL_PEN_AXIS_LAST
-        && (pen->header.flags & SDL_PEN_AXIS_CAPABILITY(pen_axis))) {
-        if (negative_range) {
-            *negative_range = pen->axis_negative_info[pen_axis];
-        }
-        if (positive_range) {
-            *positive_range = pen->axis_positive_info[pen_axis];
-        }
-        return SDL_TRUE;
-    }
-    return SDL_FALSE;
 }
 
 Uint32
@@ -296,8 +274,6 @@ SDL_PenModifyBegin(Uint32 penid_id)
     pen = SDL_GetPen(id.id);
 
     if (!pen) {
-        int i;
-
         if (!pen_handler.pens || pen_handler.pens_known == pen_handler.pens_allocated) {
             size_t pens_to_allocate = pen_handler.pens_allocated + alloc_growth_constant;
             SDL_Pen *pens;
@@ -317,14 +293,9 @@ SDL_PenModifyBegin(Uint32 penid_id)
         /* Default pen initialisation */
         pen->header.id = id;
         pen->header.flags = SDL_PEN_FLAG_NEW;
-        pen->num_buttons = SDL_PEN_INFO_UNKNOWN;
+        pen->info.num_buttons = SDL_PEN_INFO_UNKNOWN;
+        pen->info.max_tilt = SDL_PEN_INFO_UNKNOWN;
         pen->type = SDL_PEN_TYPE_PEN;
-        for (i = 0; i < SDL_PEN_NUM_AXES; ++i) {
-            const static int default_bidirectional_axes = SDL_PEN_AXIS_BIDIRECTIONAL_MASKS;
-
-            pen->axis_positive_info[i] = SDL_PEN_INFO_UNKNOWN;
-            pen->axis_negative_info[i] = (default_bidirectional_axes & SDL_PEN_AXIS_CAPABILITY(i)) ? SDL_PEN_INFO_UNKNOWN : 0;
-        }
     }
     return pen;
 }
@@ -360,20 +331,18 @@ SDL_PenModifyEnd(SDL_Pen * pen, SDL_bool attach)
     pen->header.flags &= ~(SDL_PEN_FLAG_NEW | SDL_PEN_FLAG_STALE | SDL_PEN_FLAG_DETACHED);
     if (attach == SDL_FALSE) {
         pen->header.flags |= SDL_PEN_FLAG_DETACHED;
-	if (was_attached) {
-	    broke_sort_order = SDL_TRUE;
-	    if (!is_new) {
-		pen_handler.pens_attached -= 1;
-	    }
-	}
+        if (was_attached) {
+            broke_sort_order = SDL_TRUE;
+            if (!is_new) {
+                pen_handler.pens_attached -= 1;
+            }
+        }
     } else if (!was_attached || is_new) {
-	broke_sort_order = SDL_TRUE;
-	pen_handler.pens_attached += 1;
+        broke_sort_order = SDL_TRUE;
+        pen_handler.pens_attached += 1;
     }
 
     if (is_new) {
-        int i;
-
         /* default: name */
         if (!pen->name[0]) {
             sprintf(pen->name, "%s %d", pen->type == SDL_PEN_TYPE_ERASER ? "Eraser" : "Pen",
@@ -381,11 +350,8 @@ SDL_PenModifyEnd(SDL_Pen * pen, SDL_bool attach)
         }
 
         /* default: enabled axes */
-        for (i = 0; i < SDL_PEN_NUM_AXES; ++i) {
-            if (!(pen->header.flags & SDL_PEN_AXIS_CAPABILITY(i))) {
-                pen->axis_positive_info[i] = 0;
-                pen->axis_negative_info[i] = 0;
-            }
+	if (!(pen->header.flags & (SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK))) {
+	    pen->info.max_tilt = 0; /* no tilt => no max_tilt */
         }
 
         /* sanity-check GUID */
@@ -401,11 +367,11 @@ SDL_PenModifyEnd(SDL_Pen * pen, SDL_bool attach)
             pen->header.flags = (pen->header.flags & ~SDL_PEN_ERASER_MASK) | SDL_PEN_INK_MASK;
         }
 
-	broke_sort_order = SDL_TRUE;
+        broke_sort_order = SDL_TRUE;
     }
     if (broke_sort_order && pen_handler.sorted) {
-	/* Maintain sortedness invariant */
-	pen_sort();
+        /* Maintain sortedness invariant */
+        pen_sort();
     }
 }
 
@@ -464,7 +430,6 @@ int
 SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
                   SDL_bool window_relative,
                   const SDL_PenStatusInfo *status)
-//                  float x, float y, const float axes[SDL_PEN_NUM_AXES])
 {
     const SDL_Mouse *mouse = SDL_GetMouse();
     int i ;
@@ -482,13 +447,17 @@ SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
 
     pen_relative_coordinates(window, window_relative, &x, &y);
 
+    /* Check if the event actually modifies any cached axis or location, update as neeed */
     if (x != last_x || y != last_y) {
         axes_changed = SDL_TRUE;
-    } else {
-        for (i = 0; i < SDL_PEN_NUM_AXES; ++ i) {
-            if (status->axes[i] != pen->last.axes[i]) {
-                axes_changed = SDL_TRUE;
-            }
+        pen->last.x = status->x;
+        pen->last.y = status->y;
+    }
+    for (i = 0; i < SDL_PEN_NUM_AXES; ++i) {
+        if ((pen->header.flags & SDL_PEN_AXIS_CAPABILITY(i))
+            && (status->axes[i] != pen->last.axes[i])) {
+            axes_changed = SDL_TRUE;
+            pen->last.axes[i] = status->axes[i];
         }
     }
     if (!axes_changed) {
@@ -515,9 +484,6 @@ SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
     if (!posted) {
         return SDL_FALSE;
     }
-
-    pen->last = *status;
-    pen->last.buttons = last_buttons;
 
     if (send_mouse_update) {
         switch (pen_mouse_emulation_mode) {
@@ -831,25 +797,14 @@ SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 wacom_
     SDL_memcpy(&pen->guid.data[8], "WACM", 4);
 
     /* Override defaults */
-    if (pen->num_buttons == SDL_PEN_INFO_UNKNOWN) {
-        pen->num_buttons = num_buttons;
+    if (pen->info.num_buttons == SDL_PEN_INFO_UNKNOWN) {
+        pen->info.num_buttons = num_buttons;
     }
     if (pen->type == SDL_PEN_TYPE_PEN) {
         pen->type = tool_type;
     }
-    if (pen->axis_negative_info[SDL_PEN_AXIS_THROTTLE] == SDL_PEN_INFO_UNKNOWN) {
-        /* Negative throttle only shows up on "puck" Wacom devices, which we don't support here */
-        pen->axis_negative_info[SDL_PEN_AXIS_THROTTLE] = 0;
-    }
-    if (pen->axis_negative_info[SDL_PEN_AXIS_XTILT] == SDL_PEN_INFO_UNKNOWN
-        && pen->axis_negative_info[SDL_PEN_AXIS_YTILT] == SDL_PEN_INFO_UNKNOWN
-        && pen->axis_positive_info[SDL_PEN_AXIS_XTILT] == SDL_PEN_INFO_UNKNOWN
-        && pen->axis_positive_info[SDL_PEN_AXIS_YTILT] == SDL_PEN_INFO_UNKNOWN) {
-        /* Default physical tilt ranges */
-        pen->axis_negative_info[SDL_PEN_AXIS_XTILT] = 64;
-        pen->axis_negative_info[SDL_PEN_AXIS_YTILT] = 64;
-        pen->axis_positive_info[SDL_PEN_AXIS_XTILT] = 63;
-        pen->axis_positive_info[SDL_PEN_AXIS_YTILT] = 63;
+    if (pen->info.max_tilt == SDL_PEN_INFO_UNKNOWN) {
+        pen->info.max_tilt = 64; /* supposedly: 64 degrees left, 63 right, as reported by the Wacom X11 driver */
     }
 
     if (0 == pen->name[0]) {

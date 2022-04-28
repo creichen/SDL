@@ -64,10 +64,8 @@ typedef struct SDL_Pen {
 
     /* Backend: SHOULD initialise this block when pen is first registered if it can
        Otherwise: Set to sane default values during SDL_PenModifyEnd() */
-    Sint8 num_buttons;           /* Number of physical on/off pen buttons (not counting the pressure-sensitive tip) */
+    SDL_PenCapabilityInfo info;  /* Detail information about the pen (buttons, tilt) */
     Uint8 type;                  /* SDL_PEN_TYPE_* */
-    int axis_negative_info[SDL_PEN_NUM_AXES]; /* Meta-information, cf. ::SDL_PenAxisInfo() */
-    int axis_positive_info[SDL_PEN_NUM_AXES]; /* Meta-information, cf. ::SDL_PenAxisInfo() */
     char name[SDL_PEN_MAX_NAME]; /* Set via SDL_strlcpy(dest, src SDL_PEN_MAX_NAME) */
 
     void *deviceinfo;  /* implementation-specific information */
@@ -80,7 +78,7 @@ typedef struct SDL_Pen {
  *
  * \param penid_id A Uint32 pen identifier (driver-dependent meaning).  Must not be 0 = SDL_PEN_ID_INVALID.
  *
- * The pen pointer is only valid until the next call to SDL_
+ * The pen pointer is only valid until the next call to SDL_PenModifyEnd() or SDL_PenGCSweep()
  *
  * \return pen, if it exists, or NULL
  */
@@ -144,7 +142,7 @@ extern void SDL_PenModifyAddCapabilities(SDL_Pen * pen, Uint32 capabilities);
  * \param pen The pen to initialise
  * \param wacom_devicetype_id The Wacom-specific device type identifier
  * \param wacoms_erial_id The Wacom-specific serial number (written to "pen->guid" but otherwise ignored)
- * \param axis_flags[out] The set of physically supported axes for this pen, suitable for passing to
+ * \param[out] axis_flags The set of physically supported axes for this pen, suitable for passing to
  *    SDL_PenModifyAddCapabilities()
  *
  * \returns SDL_TRUE if the device ID could be identified, otherwise SDL_FALSE

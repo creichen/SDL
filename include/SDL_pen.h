@@ -83,16 +83,16 @@ typedef SDL_JoystickGUID SDL_PenGUID;   /**< UUID for pens, suitable for pesisti
 #define SDL_PEN_AXIS_YTILT        2 /**< Pen vertical tilt.  Bidirectional: -1.0..1.0 (top-to-bottom) */
 #define SDL_PEN_AXIS_DISTANCE     3 /**< Pen distance to drawing surface.  Unidirectional: 0.0..1.0 */
 #define SDL_PEN_AXIS_ROTATION     4 /**< Pen barrel rotation. Unidirectional: 0.0..1.0 (clockwise) */
-#define SDL_PEN_AXIS_THROTTLE     5 /**< Pen wheel or throttle; may be unidirectional or bidirectional (cf. SDL_::PenAxisInfo) */
+#define SDL_PEN_AXIS_THROTTLE     5 /**< Pen wheel or throttle. Unidirectional: 0.0..1.0 */
 
 #define SDL_PEN_AXIS_LAST         SDL_PEN_AXIS_THROTTLE   /**< Last valid axis index */
 #define SDL_PEN_NUM_AXES          (SDL_PEN_AXIS_LAST + 1) /**< Last axis index plus 1 */
 /** @} */
 
 /* Pen flags.  THese share a bitmask space with ::SDL_BUTTON_LEFT and friends. */
-#define SDL_PEN_FLAG_INK_BIT_INDEX      14  /* Bit for storing has-non-eraser capability status */
-#define SDL_PEN_FLAG_ERASER_BIT_INDEX   15  /* Bit for storing is-eraser or has-eraser property */
-#define SDL_PEN_FLAG_AXIS_BIT_OFFSET    16  /* Bit for storing has-axis-0 property */
+#define SDL_PEN_FLAG_INK_BIT_INDEX          14  /* Bit for storing has-non-eraser capability status */
+#define SDL_PEN_FLAG_ERASER_BIT_INDEX       15  /* Bit for storing is-eraser or has-eraser property */
+#define SDL_PEN_FLAG_AXIS_BIT_OFFSET        16  /* Bit for storing has-axis-0 property */
 
 #define SDL_PEN_CAPABILITY(capbit)    (1ul << (capbit))
 #define SDL_PEN_AXIS_CAPABILITY(axis) SDL_PEN_CAPABILITY((axis) + SDL_PEN_FLAG_AXIS_BIT_OFFSET)
@@ -112,7 +112,7 @@ typedef SDL_JoystickGUID SDL_PenGUID;   /**< UUID for pens, suitable for pesisti
 #define SDL_PEN_AXIS_THROTTLE_MASK  SDL_PEN_AXIS_CAPABILITY(SDL_PEN_AXIS_THROTTLE)    /**< Pen provides pressure-sensitive button / throttle / wheel in axis ::SDL_PEN_AXIS_THROTTLE */
 
 #define SDL_PEN_AXIS_BIDIRECTIONAL_MASKS (SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK | SDL_PEN_AXIS_THROTTLE_MASK)
-	/**< Masks for all axes that may be bidirectional */
+        /**< Masks for all axes that may be bidirectional */
 /** @} */
 
 
@@ -276,19 +276,25 @@ extern DECLSPEC SDL_bool SDLCALL SDL_PenAttached(SDL_PenID penid);
 extern DECLSPEC const char * SDLCALL SDL_PenName(SDL_PenID pen);
 
 /**
+ * Pen capabilities, as reported by ::SDL_PenCapabilities()
+ */
+typedef struct SDL_PenCapabilityInfo {
+    Sint8 num_buttons;        /**< Number of pen buttons (not counting the pen tip), or SDL_PEN_INFO_UNKNOWN */
+    Sint8 max_tilt;           /**< Physical tilt degrees that correspond to -1.0 / 1.0 tilt */
+} SDL_PenCapabilityInfo;
+
+/**
  * Retrieves capability flags for a given ::SDL_PenID.
  *
  * \param pen The pen to query.
- * \param num_buttons[out] Out-mode parameter for the number of physical pen buttons (i.e., not counting
- *      the pen tip). May be NULL.
- *      Can return SDL_PEN_INFO_UNKNOWN if the driver a.
+ * \param[out] capabilities Detail information about pen capabilities, such as the number of buttons
  *
  * \returns a set of capability flags, cf. \link SDL_PEN_CAPABILITIES \endlink.  Returns 0 on error
  *     (cf. ::SDL_GetError())
  *
  * \since This function is available since SDL 2.TBD
  */
-extern DECLSPEC Uint32 SDLCALL SDL_PenCapabilities(SDL_PenID pen, int * num_buttons);
+extern DECLSPEC Uint32 SDLCALL SDL_PenCapabilities(SDL_PenID pen, SDL_PenCapabilityInfo * capabilities);
 
 /**
  * Retrieves the pen type for a given ::SDL_PenID.
@@ -297,36 +303,6 @@ extern DECLSPEC Uint32 SDLCALL SDL_PenCapabilities(SDL_PenID pen, int * num_butt
  * \returns The corresponding pen type (cf. \link SDL_PEN_TYPES \endlink) or 0 on error.
  */
 extern DECLSPEC Uint32 SDLCALL SDL_PenType(SDL_PenID pen);
-
-/**
- * Retrieves detail information about support for a given axis on a given pen.
- *
- * If the pen is detached (cf. ::SDL_PenAttached), this operation may return
- * default values.
- *
- * \param pen The pen to query.
- * \param pen_axis The axis to query, e.g., ::SDL_PEN_AXIS_PRESSURE (cf. \link SDL_PEN_AXES \endlink)
- * \param[out] negative_range Out-mode parameter (may be null): Describes the meaning of negative values
- *     reported in the "axes[pen_axis]" field of an ::SDL_PenButtonEvent or ::SDL_PenMotionEvent .
- *     If 0, this axis is unsupported or cannot report negative values.
- *     If SDL_PEN_INFO_UNKNOWN, no further information is available.
- * \param[out] positive_range Out-mode parameter (may be null): Describes the meaning of positive values
- *     reported in the "axes[pen_axis]" field of an ::SDL_PenButtonEvent or ::SDL_PenMotionEvent .
- *     If 0, this axis is not supported.
- *     If SDL_PEN_INFO_UNKNOWN, no further information is available; the axis may or may not be supported.
- *     Otherwise, the meaning is axis-specific.
- *
- * \returns SDL_TRUE iff the given axis is supported.
- *     This will always agree with ::SDL_PenCapabilities .
- *
- * For ::SDL_PEN_AXIS_XTILT and  ::SDL_PEN_AXIS_YTILT , the reported ranges are the pen's maximum tilt degree
- * (i.e., the physical pen tilt that correspond to an axis value of 1.0 or -1.0).
- *
- * For all other axes, the reported ranges indicate the pen's precision.
- *
- * \since This function is available since SDL 2.TBD
- */
-extern DECLSPEC SDL_bool SDLCALL SDL_PenAxisInfo(SDL_PenID pen, int pen_axis, int * negative_range, int * positive_range);
 
 /* Ends C function definitions when using C++ */
 #ifdef __cplusplus
