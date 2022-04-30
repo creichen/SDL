@@ -43,7 +43,6 @@
 #include "SDL_test_md5.h"
 #include "SDL_test_memory.h"
 #include "SDL_test_random.h"
-
 #include "begin_code.h"
 /* Set up for C function definitions, even when using C++ */
 #ifdef __cplusplus

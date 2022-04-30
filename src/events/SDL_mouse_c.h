@@ -152,6 +152,9 @@ extern int SDL_SendMouseButtonClicks(SDL_Window * window, SDL_MouseID mouseID, U
 /* Send a mouse wheel event */
 extern int SDL_SendMouseWheel(SDL_Window * window, SDL_MouseID mouseID, float x, float y, SDL_MouseWheelDirection direction);
 
+/* Check if mouse position is within window or captured by window */
+extern SDL_bool SDL_IsMousePositionInWindow(SDL_Window * window, SDL_MouseID mouseID, int x, int y);
+
 /* Shutdown the mouse subsystem */
 extern void SDL_MouseQuit(void);
 
