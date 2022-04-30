@@ -1823,6 +1823,7 @@ static void
 tablet_tool_handle_removed(void* data, struct zwp_tablet_tool_v2* tool)
 {
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[Wayland] handle-removed\n");
     if (pen) {
         SDL_PenModifyEnd(pen, SDL_FALSE);
     }
@@ -1834,6 +1835,7 @@ tablet_tool_handle_proximity_in(void* data, struct zwp_tablet_tool_v2* tool, uin
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
     SDL_WindowData* window;
+    fprintf(stderr, "[Wayland] proximity-in\n");
 
     if (!surface) {
         return;
@@ -1859,7 +1861,7 @@ tablet_tool_handle_proximity_out(void* data, struct zwp_tablet_tool_v2* tool)
 {
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
-
+    fprintf(stderr, "[Wayland] proximity-out\n");
     if (input->tool_focus) {
         SDL_SetMouseFocus(NULL);
         input->tool_focus = NULL;
@@ -1872,6 +1874,7 @@ tablet_tool_handle_down(void* data, struct zwp_tablet_tool_v2* tool, uint32_t se
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
     input->current_pen.buttons_pressed |= SDL_BUTTON_LMASK;
+    fprintf(stderr, "[Wayland] down\n");
 }
 
 static void
@@ -1880,6 +1883,7 @@ tablet_tool_handle_up(void* data, struct zwp_tablet_tool_v2* tool)
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
     input->current_pen.buttons_released |= SDL_BUTTON_LMASK;
+    fprintf(stderr, "[Wayland] up\n");
 }
 
 static void
