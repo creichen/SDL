@@ -19,7 +19,9 @@
 #define WIDTH 1600
 #define HEIGHT 1200
 
-#define VERBOSE 0
+#define VERBOSE 1
+
+#define ALWAYS_SHOW_PRESSURE_BOX 1
 
 static SDLTest_CommonState *state;
 static int quitting = 0;
@@ -95,7 +97,7 @@ DrawScreen(SDL_Renderer *renderer)
     SDL_RenderDrawLineF(renderer, last_x, last_y, endx - (ydelta * last_pressure / 3.0), endy + (xdelta * last_pressure / 3.0));
 
     /* If tilt is very small (or zero, for pens that don't have tilt), add some extra lines, rotated by the current rotation value */
-    if (fabs(last_xtilt) < 0.1f && fabs(last_ytilt) < 0.1f) {
+    if (ALWAYS_SHOW_PRESSURE_BOX || (fabs(last_xtilt) < 0.1f && fabs(last_ytilt) < 0.1f)) {
         int rot;
         float pressure = last_pressure * 40.0;
 
@@ -259,10 +261,10 @@ process_event(SDL_Event event)
         last_rotation = ev->axes[SDL_PEN_AXIS_ROTATION];
         last_was_eraser = ev->pen_state & SDL_PEN_ERASER_MASK;
 #if VERBOSE
-        SDL_Log("pen motion @ %d: %s %u at %f,%f; pressure=%.3f, tilt=%.3f/%.3f [buttons=%02x]\n",
+        SDL_Log("pen motion @ %d: %s %u at %f,%f; pressure=%.3f, tilt=%.3f/%.3f, dist=%.3f [buttons=%02x]\n",
                 ev->timestamp,
                 last_was_eraser ? "eraser" : "pen",
-                (unsigned int) ev->which.id, ev->x, ev->y, last_pressure, last_xtilt, last_ytilt,
+                (unsigned int) ev->which.id, ev->x, ev->y, last_pressure, last_xtilt, last_ytilt, last_distance,
                 ev->pen_state);
 #endif
         break;
@@ -282,14 +284,14 @@ process_event(SDL_Event event)
         last_was_eraser = ev->pen_state & SDL_PEN_ERASER_MASK;
         last_button = ev->state == SDL_PRESSED ? ev->button : 0;
 #if VERBOSE
-        SDL_Log("pen button: %s %u at %f,%f; BUTTON %d reported %s with event %s [pressure=%.3f, tilt=%.3f/%.3f]\n",
+        SDL_Log("pen button: %s %u at %f,%f; BUTTON %d reported %s with event %s [pressure=%.3f, tilt=%.3f/%.3f, dist=%.3f]\n",
                 last_was_eraser ? "eraser" : "pen",
                 (unsigned int) ev->which.id, ev->x, ev->y,
                 ev->button,
                 (ev->state == SDL_PRESSED) ? "PRESSED"
                 : ((ev->state == SDL_RELEASED) ? "RELEASED" : "--invalid--"),
                 event.type == SDL_PENBUTTONUP ? "PENBUTTONUP" : "PENBUTTONDOWN",
-                last_pressure, last_xtilt, last_ytilt);
+                last_pressure, last_xtilt, last_ytilt, last_distance);
 #endif
         break;
     }

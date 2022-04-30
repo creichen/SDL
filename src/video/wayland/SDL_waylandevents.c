@@ -1922,6 +1922,7 @@ tablet_tool_handle_distance(void* data, struct zwp_tablet_tool_v2* tool, uint32_
 {
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
+    fprintf(stderr, "[Wayland] distance = %d\n", distance);
     input->current_pen.update_status.axes[SDL_PEN_AXIS_DISTANCE] = (float) (distance / 65535.0);
 }
 
@@ -1930,8 +1931,8 @@ tablet_tool_handle_tilt(void* data, struct zwp_tablet_tool_v2* tool, wl_fixed_t 
 {
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
-    input->current_pen.update_status.axes[SDL_PEN_AXIS_XTILT] = (float) (wl_fixed_to_double(xtilt) / 90.0);
-    input->current_pen.update_status.axes[SDL_PEN_AXIS_YTILT] = (float) (wl_fixed_to_double(ytilt) / 90.0);
+    input->current_pen.update_status.axes[SDL_PEN_AXIS_XTILT] = (float) (SDL_sin(wl_fixed_to_double(xtilt) * M_PI / 180.0));
+    input->current_pen.update_status.axes[SDL_PEN_AXIS_YTILT] = (float) (SDL_sin(wl_fixed_to_double(ytilt) * M_PI / 180.0));
 }
 
 static void
