@@ -666,7 +666,7 @@ pen_wacom_identify_tool(Uint32 requested_wacom_id, int *num_buttons, int *tool_t
 {
     int i;
 
-    /* List of known Wacom pens, extracted from libwacom.stylus and warom_wac.c in the Linux kernel.
+    /* List of known Wacom pens, extracted from libwacom.stylus and wacom_wac.c in the Linux kernel.
        Could be complemented by dlopen()ing libwacom, in the future (if new pens get added).  */
     struct {
         /* Compress properties to 8 bytes per device in order to keep memory cost well below 1k.

@@ -1998,6 +1998,7 @@ tablet_tool_handle_frame(void* data, struct zwp_tablet_tool_v2* tool, uint32_t t
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
     SDL_PenID penid = Wayland_get_penid(data, tool);
+    SDL_Pen *pen = SDL_GetPen(penid.id);
     SDL_WindowData *window = input->current_pen.update_window;
     SDL_PenStatusInfo *status = &input->current_pen.update_status;
     int button;
@@ -2005,6 +2006,13 @@ tablet_tool_handle_frame(void* data, struct zwp_tablet_tool_v2* tool, uint32_t t
 
     if (penid.id == 0 || !window) { /* Not a pen or event reported out of focus */
         return;
+    }
+
+    if (status->axes[SDL_PEN_AXIS_DISTANCE] == 0.0f
+	&& pen->last.axes[SDL_PEN_AXIS_DISTANCE] >= 0.5f
+	&& pen->last.axes[SDL_PEN_AXIS_PRESSURE] == 0.0f) {
+	/* Heuristic: suppress sudden flips to distance 0 if there isn't also some pressure */
+	status->axes[SDL_PEN_AXIS_DISTANCE] = 1.0f;
     }
 
     SDL_SendPenMotion(window->sdlwindow, penid, SDL_TRUE, status);
