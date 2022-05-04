@@ -210,6 +210,7 @@
     <ClCompile Include="..\..\..\test\testautomation_keyboard.c" />
     <ClCompile Include="..\..\..\test\testautomation_main.c" />
     <ClCompile Include="..\..\..\test\testautomation_mouse.c" />
+    <ClCompile Include="..\..\..\test\testautomation_pen.c" />
     <ClCompile Include="..\..\..\test\testautomation_pixels.c" />
     <ClCompile Include="..\..\..\test\testautomation_platform.c" />
     <ClCompile Include="..\..\..\test\testautomation_rect.c" />
