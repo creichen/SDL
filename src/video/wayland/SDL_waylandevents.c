@@ -67,6 +67,13 @@
 /* Weston uses a ratio of 10 units per scroll tick */
 #define WAYLAND_WHEEL_AXIS_UNIT 10
 
+#define ZWP_TRACE_TABLET_TOOL_CALLBACKS 1
+
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+#include <time.h>
+#include <sys/time.h>
+#endif
+
 static const struct {
     xkb_keysym_t keysym;
     SDL_KeyCode keycode;
@@ -1718,10 +1725,36 @@ Wayland_get_current_pen(void *data, struct zwp_tablet_tool_v2* tool)
     return input->current_pen.builder;
 }
 
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+static char *
+zwp_trace_time(void)
+{
+    static char timebuf[64];
+    char date[32];
+    time_t t;
+    struct tm *tm;
+    struct timeval tv;
+
+    t = time(NULL);
+    tm = gmtime(&t);
+    strftime(date, sizeof(date), "%F-%T", tm);
+    gettimeofday(&tv, NULL);
+
+    snprintf(timebuf, sizeof(timebuf), "%s.%06ld", date, tv.tv_usec);
+
+    return timebuf;
+}
+#endif
+
 static void
 tablet_tool_handle_type(void* data, struct zwp_tablet_tool_v2* tool, uint32_t type)
 {
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::type(%p, %p, %d)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, type);
+#endif
 
     switch (type) {
     case ZWP_TABLET_TOOL_V2_TYPE_ERASER:
@@ -1756,6 +1789,12 @@ static void
 tablet_tool_handle_hardware_serial(void* data, struct zwp_tablet_tool_v2* tool, uint32_t serial_hi, uint32_t serial_lo)
 {
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::hardware_serial(%p, %p, 0x%x, 0x%x)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, serial_hi, serial_lo);
+#endif
+
     /* Write in such a way that they complement the Wacom hardware IDs */
     SDL_memcpy(&pen->guid.data[0], &serial_lo, 4);
     SDL_memcpy(&pen->guid.data[12], &serial_hi, 4);
@@ -1766,6 +1805,12 @@ tablet_tool_handle_hardware_id_wacom(void* data, struct zwp_tablet_tool_v2* tool
 {
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
     Uint32 axis_flags;
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::hardware_id_wacom(%p, %p, 0x%x, 0x%x)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, id_hi, id_lo);
+#endif
+
     SDL_PenModifyFromWacomID(pen, id_lo, id_hi, &axis_flags);
     SDL_PenModifyAddCapabilities(pen, axis_flags);
 }
@@ -1774,6 +1819,11 @@ static void
 tablet_tool_handle_capability(void* data, struct zwp_tablet_tool_v2* tool, uint32_t capability)
 {
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::capability(%p, %p, 0x%x)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, capability);
+#endif
 
     switch (capability) {
     case ZWP_TABLET_TOOL_V2_CAPABILITY_TILT:
@@ -1811,6 +1861,11 @@ tablet_tool_handle_done(void* data, struct zwp_tablet_tool_v2* tool)
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::done(%p, %p)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool);
+#endif
 
     SDL_PenModifyEnd(pen, SDL_TRUE);
 
@@ -1821,6 +1876,11 @@ static void
 tablet_tool_handle_removed(void* data, struct zwp_tablet_tool_v2* tool)
 {
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::removed(%p, %p)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool);
+#endif
     if (pen) {
         SDL_PenModifyEnd(pen, SDL_FALSE);
     }
@@ -1832,6 +1892,12 @@ tablet_tool_handle_proximity_in(void* data, struct zwp_tablet_tool_v2* tool, uin
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
     SDL_WindowData* window;
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::proximity_in(%p, %p, 0x%x, %p)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, serial, surface);
+#endif
 
     if (!surface) {
         return;
@@ -1857,6 +1923,13 @@ tablet_tool_handle_proximity_out(void* data, struct zwp_tablet_tool_v2* tool)
 {
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::proximity_out(%p, %p)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool);
+#endif
+
     if (input->tool_focus) {
         SDL_SetMouseFocus(NULL);
         input->tool_focus = NULL;
@@ -1868,6 +1941,13 @@ tablet_tool_handle_down(void* data, struct zwp_tablet_tool_v2* tool, uint32_t se
 {
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::down(%p, %p, 0x%x)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, serial);
+#endif
+
     input->current_pen.buttons_pressed |= SDL_BUTTON_LMASK;
 }
 
@@ -1876,6 +1956,13 @@ tablet_tool_handle_up(void* data, struct zwp_tablet_tool_v2* tool)
 {
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::up(%p, %p)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool);
+#endif
+
     input->current_pen.buttons_released |= SDL_BUTTON_LMASK;
 }
 
@@ -1886,6 +1973,12 @@ tablet_tool_handle_motion(void* data, struct zwp_tablet_tool_v2* tool, wl_fixed_
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
     SDL_WindowData* window = input->tool_focus;
     SDL_PenID penid = Wayland_get_penid(data, tool);
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::motion(%p, %p, %f, %f)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, wl_fixed_to_double(sx_w), wl_fixed_to_double(sy_w));
+#endif
 
     input->sx_w = sx_w;
     input->sy_w = sy_w;
@@ -1911,6 +2004,12 @@ tablet_tool_handle_pressure(void* data, struct zwp_tablet_tool_v2* tool, uint32_
 {
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::pressure(%p, %p, 0x%x)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, pressure);
+#endif
     input->current_pen.update_status.axes[SDL_PEN_AXIS_PRESSURE] = (float) (pressure / 65535.0);
 }
 
@@ -1919,6 +2018,12 @@ tablet_tool_handle_distance(void* data, struct zwp_tablet_tool_v2* tool, uint32_
 {
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::distance(%p, %p, 0x%x)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, distance);
+#endif
     input->current_pen.update_status.axes[SDL_PEN_AXIS_DISTANCE] = (float) (distance / 65535.0);
 }
 
@@ -1927,6 +2032,12 @@ tablet_tool_handle_tilt(void* data, struct zwp_tablet_tool_v2* tool, wl_fixed_t 
 {
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::tilt(%p, %p, %f, %f)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, wl_fixed_to_double(xtilt), wl_fixed_to_double(ytilt));
+#endif
     input->current_pen.update_status.axes[SDL_PEN_AXIS_XTILT] = (float) (SDL_sin(wl_fixed_to_double(xtilt) * M_PI / 180.0));
     input->current_pen.update_status.axes[SDL_PEN_AXIS_YTILT] = (float) (SDL_sin(wl_fixed_to_double(ytilt) * M_PI / 180.0));
 }
@@ -1938,6 +2049,12 @@ tablet_tool_handle_button(void* data, struct zwp_tablet_tool_v2* tool, uint32_t 
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
     Uint16 mask = 0;
     SDL_bool pressed = state == ZWP_TABLET_PAD_V2_BUTTON_STATE_PRESSED ? SDL_TRUE : SDL_FALSE;
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::button(%p, %p, 0x%x, 0x%x, 0x%x)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, serial, button, state);
+#endif
 
     switch (button) {
         /* see %{_includedir}/linux/input-event-codes.h */
@@ -1965,6 +2082,12 @@ tablet_tool_handle_rotation(void* data, struct zwp_tablet_tool_v2* tool, wl_fixe
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
     float rotation = (float) (wl_fixed_to_double(degrees) / 360.0);
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::rotation(%p, %p, %f)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, wl_fixed_to_double(degrees));
+#endif
     input->current_pen.update_status.axes[SDL_PEN_AXIS_ROTATION] = rotation;
 }
 
@@ -1973,12 +2096,24 @@ tablet_tool_handle_slider(void* data, struct zwp_tablet_tool_v2* tool, int32_t p
 {
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::slider(%p, %p, %d)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, position);
+#endif
     input->current_pen.update_status.axes[SDL_PEN_AXIS_SLIDER] = (float) (position / 65535.0);
 }
 
 static void
 tablet_tool_handle_wheel(void* data, struct zwp_tablet_tool_v2* tool, wl_fixed_t degrees, int32_t clicks)
 {
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::wheel(%p, %p, %f, %d)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, wl_fixed_to_double(degrees), clicks);
+#endif
     /* not supported at the moment */
 }
 
@@ -1993,6 +2128,11 @@ tablet_tool_handle_frame(void* data, struct zwp_tablet_tool_v2* tool, uint32_t t
     SDL_PenStatusInfo *status = &input->current_pen.update_status;
     int button;
     int button_mask;
+#if ZWP_TRACE_TABLET_TOOL_CALLBACKS
+    fprintf(stderr, "[%s] {SDL-Wayland: pen=%d} zwp_tablet_tool_v2::frame(%p, %p, %d)\n",
+            zwp_trace_time(),
+            pen->header.id.id, data, tool, time);
+#endif
 
     if (penid.id == 0 || !window) { /* Not a pen or event reported out of focus */
         return;
