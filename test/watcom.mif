@@ -18,7 +18,7 @@ TARGETS = testatomic.exe testdisplayinfo.exe testbounds.exe testdraw2.exe &
           testshader.exe testshape.exe testsprite2.exe testspriteminimal.exe &
           teststreaming.exe testthread.exe testtimer.exe testver.exe &
           testviewport.exe testwm2.exe torturethread.exe checkkeys.exe &
-          checkkeysthreads.exe testmouse.exe testgles.exe testgles2.exe &
+          checkkeysthreads.exe testmouse.exe testpen.exe testgles.exe testgles2.exe &
           controllermap.exe testhaptic.exe testqsort.exe testresample.exe &
           testaudioinfo.exe testaudiocapture.exe loopwave.exe loopwavequeue.exe &
           testsurround.exe testyuv.exe testgl2.exe testvulkan.exe testnative.exe &
@@ -52,7 +52,7 @@ TESTS = $(noninteractive) $(needs_audio) $(needs_display)
 TASRCS = testautomation.c testautomation_audio.c testautomation_clipboard.c &
          testautomation_events.c testautomation_hints.c &
          testautomation_keyboard.c testautomation_main.c &
-         testautomation_mouse.c testautomation_pixels.c &
+         testautomation_mouse.c testautomation_pen.c testautomation_pixels.c &
          testautomation_platform.c testautomation_rect.c &
          testautomation_render.c testautomation_rwops.c &
          testautomation_sdltest.c testautomation_stdlib.c &
