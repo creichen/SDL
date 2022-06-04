@@ -43,6 +43,9 @@ extern void X11_PenAxesFromValuators(const SDL_Pen *pen,
                                      /* out-mode parameters: */
                                      float axis_values[SDL_PEN_NUM_AXES]);
 
+/* Map X11 device ID to pen ID */
+extern int X11_PenIDFromDeviceID(int deviceid);
+
 #endif /* SDL_VIDEO_DRIVER_X11_XINPUT2 */
 
 #endif /* SDL_x11pen_h_ */

@@ -191,8 +191,7 @@ extern DECLSPEC Uint32 SDLCALL SDL_PenStatus(SDL_PenID pen, float * x, float * y
  *
  * \param guid A pen GUID.
  *
- * \returns A valid ::SDL_PenID, or ::SDL_PENID_INVALID if the "device_index" was outside the valid range.
- *     In the latter case, ::SDL_GetError() is set.
+ * \returns A valid ::SDL_PenID, or ::SDL_PENID_INVALID if there is no matching SDL_PenID.
  *
  * \since This function is available since SDL 2.TBD
  *

@@ -248,7 +248,7 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
 
                 /* Only report button event; if there was also pen movement / pressure changes, we expect
                    an XI_Motion event first anyway */
-                SDL_SendPenButton(mouse->focus, pen->header.id,
+                SDL_SendPenButton(mouse->focus, X11_PenIDFromDeviceID(pen->header.id),
                                   pressed ? SDL_PRESSED : SDL_RELEASED,
                                   button);
                 return 1;
@@ -296,7 +296,7 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
                                          xev->valuators.values, xev->valuators.mask, xev->valuators.mask_len,
                                          &pen_status.axes[0]);
 
-                SDL_SendPenMotion(mouse->focus, pen->header.id,
+                SDL_SendPenMotion(mouse->focus, X11_PenIDFromDeviceID(pen->header.id),
                                   SDL_TRUE,
                                   &pen_status);
                 return 1;
