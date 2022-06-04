@@ -122,8 +122,8 @@ DrawScreen(SDL_Renderer *renderer)
         /* Four times, rotated 90 degrees, so that we get a box */
         for (rot = 0; rot < 4; ++rot) {
 
-            float vecx = SDL_cos((last_rotation + (rot/4.0)) * 2.0 * M_PI);
-            float vecy = SDL_sin((last_rotation + (rot/4.0)) * 2.0 * M_PI);
+            float vecx = SDL_cos((last_rotation + (rot/2.0)) * M_PI);
+            float vecy = SDL_sin((last_rotation + (rot/2.0)) * M_PI);
 
             float px = X + vecx * pressure;
             float py = Y + vecy * pressure;
@@ -307,7 +307,7 @@ process_event(SDL_Event event)
         last_distance = ev->axes[SDL_PEN_AXIS_DISTANCE];
         last_rotation = ev->axes[SDL_PEN_AXIS_ROTATION];
         last_was_eraser = ev->pen_state & SDL_PEN_ERASER_MASK;
-        last_button = ev->state == SDL_PRESSED ? ev->button : 0;
+        last_button = ev->pen_state & 0xf; /* button mask */
 #if VERBOSE
         SDL_Log("pen button: %s %u at %f,%f; BUTTON %d reported %s with event %s [pressure=%.3f, tilt=%.3f/%.3f, dist=%.3f]\n",
                 last_was_eraser ? "eraser" : "pen",
