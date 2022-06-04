@@ -183,9 +183,9 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
         return 0;
     }
     switch(cookie->evtype) {
+        case XI_PropertyEvent:
         case XI_HierarchyChanged:
         case XI_DeviceChanged:
-            fprintf(stderr, "[X11] Re-discovery requested\n");
             X11_InitPen(_this);
             break;
 
@@ -446,6 +446,7 @@ X11_Xinput2SelectMouse(_THIS, SDL_Window *window)
     /* Hotplugging: */
     XISetMask(mask, XI_DeviceChanged);
     XISetMask(mask, XI_HierarchyChanged);
+    XISetMask(mask, XI_PropertyEvent); /* E.g., when swapping tablet pens */
 
     if (X11_XISelectEvents(data->display,
                            window_data->xwindow,
