@@ -170,7 +170,6 @@ SDL_PenIDForGUID(SDL_PenGUID guid)
             return pen->header.id;
         }
     }
-    SDL_SetError("Could not find pen with specified GUID");
     return pen_invalid;
 }
 
@@ -443,6 +442,9 @@ SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
 
     pen_relative_coordinates(window, window_relative, &x, &y);
 
+    if (!pen) {
+        return SDL_FALSE;
+    }
     /* Check if the event actually modifies any cached axis or location, update as neeed */
     if (x != last_x || y != last_y) {
         axes_changed = SDL_TRUE;
@@ -521,6 +523,10 @@ SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
     SDL_bool posted = SDL_FALSE;
     SDL_PenStatusInfo *last = &pen->last;
     int mouse_button = button;
+
+    if (!pen) {
+        return SDL_FALSE;
+    }
 
     if ((state == SDL_PRESSED)
         && !(SDL_IsMousePositionInWindow(mouse->focus, mouse->mouseID, (int) last->x, (int) last->y))) {
@@ -800,6 +806,24 @@ pen_wacom_identify_tool(Uint32 requested_wacom_id, int *num_buttons, int *tool_t
     return NULL;
 }
 
+SDL_PenGUID
+SDL_PenWacomGUID(Uint32 wacom_devicetype_id, Uint32 wacom_serial_id)
+{
+    SDL_PenGUID guid = { { 0 } };
+    int i;
+
+    for (i = 0; i < 4; ++i) {
+        guid.data[0 + i] = (wacom_serial_id >> (i * 8)) & 0xff;
+    }
+
+    for (i = 0; i < 4; ++i) {
+        guid.data[4 + i] = (wacom_devicetype_id >> (i * 8)) & 0xff;
+    }
+
+    SDL_memcpy(&guid.data[8], "WACM", 4);
+    return guid;
+}
+
 int
 SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 wacom_serial_id, Uint32 * axis_flags)
 {
@@ -807,7 +831,6 @@ SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 wacom_
     int num_buttons;
     int tool_type;
     int axes;
-    int i;
 
 #if defined(__LINUX__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
     /* According to Ping Cheng, the curent Wacom for Linux maintainer, device IDs on Linux
@@ -830,15 +853,7 @@ SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 wacom_
     }
 
     /* Always set GUID (highest-entropy data first) */
-    if (wacom_serial_id) {
-        for (i = 0; i < 4; ++i) {
-            pen->guid.data[0 + i] = (wacom_serial_id >> (i * 8)) & 0xff;
-        }
-    }
-    for (i = 0; i < 4; ++i) {
-        pen->guid.data[4 + i] = (wacom_devicetype_id >> (i * 8)) & 0xff;
-    }
-    SDL_memcpy(&pen->guid.data[8], "WACM", 4);
+    pen->guid = SDL_PenWacomGUID(wacom_devicetype_id, wacom_serial_id);
 
     if (!name) {
         return SDL_FALSE;

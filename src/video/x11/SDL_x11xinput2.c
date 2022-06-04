@@ -191,14 +191,14 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
 
         case XI_RawMotion: {
             const XIRawEvent *rawev = (const XIRawEvent*)cookie->data;
-            const SDL_Pen *pen = SDL_GetPen(rawev->sourceid);
+            const SDL_bool is_pen = X11_PenIDFromDeviceID(rawev->sourceid) != SDL_PENID_INVALID;
             SDL_Mouse *mouse = SDL_GetMouse();
             double relative_coords[2];
             static Time prev_time = 0;
             static double prev_rel_coords[2];
 
             videodata->global_mouse_changed = SDL_TRUE;
-            if (pen) {
+            if (is_pen) {
                 return 0; /* Pens check for XI_Motion instead */
             }
 
@@ -225,9 +225,9 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
         case XI_RawButtonPress:
         case XI_RawButtonRelease: {
             const XIRawEvent *rawev = (const XIRawEvent*)cookie->data;
-            const SDL_Pen *pen = SDL_GetPen(rawev->sourceid);
+            const SDL_bool is_pen = X11_PenIDFromDeviceID(rawev->sourceid) != SDL_PENID_INVALID;
 
-            if (pen) {
+            if (is_pen) {
                 return 0;  /* Pens check for XI_Button* instead */
             }
 
@@ -239,7 +239,7 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
         case XI_ButtonPress:
         case XI_ButtonRelease: {
             const XIDeviceEvent *xev = (const XIDeviceEvent *) cookie->data;
-            const SDL_Pen *pen = SDL_GetPen(xev->deviceid);
+            const SDL_Pen *pen = SDL_GetPen(X11_PenIDFromDeviceID(xev->deviceid));
             const int button = xev->detail;
             const SDL_bool pressed = (cookie->evtype == XI_ButtonPress) ? SDL_TRUE : SDL_FALSE;
 
@@ -275,7 +275,7 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
           * so that we can distinguish real mouse motions from synthetic one.  */
         case XI_Motion: {
             const XIDeviceEvent *xev = (const XIDeviceEvent *) cookie->data;
-            const SDL_Pen *pen = SDL_GetPen(xev->deviceid);
+            const SDL_Pen *pen = SDL_GetPen(X11_PenIDFromDeviceID(xev->deviceid));
 #if SDL_VIDEO_DRIVER_X11_XINPUT2_SUPPORTS_MULTITOUCH
             int pointer_emulated = (xev->flags & XIPointerEmulated);
 #endif /* SDL_VIDEO_DRIVER_X11_XINPUT2_SUPPORTS_MULTITOUCH */

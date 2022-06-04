@@ -1233,7 +1233,7 @@ _expect_pen_config(SDL_PenID penid,
                    float expected_max_tilt,
                    int expected_axes)
 {
-    SDL_PenCapabilityInfo actual_info;
+    SDL_PenCapabilityInfo actual_info = { 0 };
     const char *actual_name = SDL_PenName(penid);
 
     SDLTest_AssertEq1(int, "%d", 0, SDL_PenGUIDCompare(expected_guid, SDL_PenGUIDForPenID(penid)), "Pen %u guid equality", penid);
