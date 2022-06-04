@@ -431,7 +431,7 @@ SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
     int i ;
     SDL_Pen *pen = SDL_GetPen(penid);
     SDL_Event event;
-    SDL_bool posted;
+    SDL_bool posted = SDL_FALSE;
     float x = status->x;
     float y = status->y;
     float last_x = pen->last.x;
@@ -467,42 +467,48 @@ SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
         return SDL_FALSE;
     }
 
-    event.pmotion.type = SDL_PENMOTION;
-    event.pmotion.windowID = mouse->focus ? mouse->focus->id : 0;
-    event.pmotion.which = penid;
-    event.pmotion.pen_state = (Uint16) last_buttons | PEN_GET_ERASER_MASK(pen);
-    event.pmotion.x = x;
-    event.pmotion.y = y;
-    SDL_memcpy(event.pmotion.axes, status->axes, SDL_PEN_NUM_AXES * sizeof(float));
+    if (SDL_GetEventState(SDL_PENMOTION) == SDL_ENABLE) {
+        event.pmotion.type = SDL_PENMOTION;
+        event.pmotion.windowID = mouse->focus ? mouse->focus->id : 0;
+        event.pmotion.which = penid;
+        event.pmotion.pen_state = (Uint16) last_buttons | PEN_GET_ERASER_MASK(pen);
+        event.pmotion.x = x;
+        event.pmotion.y = y;
+        SDL_memcpy(event.pmotion.axes, status->axes, SDL_PEN_NUM_AXES * sizeof(float));
 
-    posted = SDL_PushEvent(&event) > 0;
+        posted = SDL_PushEvent(&event) > 0;
 
-    if (!posted) {
-        return SDL_FALSE;
+        if (!posted) {
+            return SDL_FALSE;
+        }
     }
 
     if (send_mouse_update) {
         switch (pen_mouse_emulation_mode) {
         case PEN_MOUSE_EMULATE:
-            return SDL_SendMouseMotion(window, SDL_PEN_MOUSEID, 0, (int) x, (int) y);
+            return (SDL_SendMouseMotion(window, SDL_PEN_MOUSEID, 0, (int) x, (int) y))
+                || posted;
 
         case PEN_MOUSE_STATELESS:
             /* Report mouse event but don't update mouse state */
-            event.motion.windowID = event.pmotion.windowID;
-            event.motion.which = SDL_PEN_MOUSEID;
-            event.motion.type = SDL_MOUSEMOTION;
-            event.motion.state = pen->last.buttons | PEN_GET_ERASER_MASK(pen);
-            event.motion.x = (int) x;
-            event.motion.y = (int) y;
-            event.motion.xrel = (int) (last_x - x);
-            event.motion.yrel = (int) (last_y - y);
-            return SDL_PushEvent(&event) > 0 ? SDL_TRUE : SDL_FALSE;
+            if (SDL_GetEventState(SDL_MOUSEMOTION) == SDL_ENABLE) {
+                event.motion.windowID = event.pmotion.windowID;
+                event.motion.which = SDL_PEN_MOUSEID;
+                event.motion.type = SDL_MOUSEMOTION;
+                event.motion.state = pen->last.buttons | PEN_GET_ERASER_MASK(pen);
+                event.motion.x = (int) x;
+                event.motion.y = (int) y;
+                event.motion.xrel = (int) (last_x - x);
+                event.motion.yrel = (int) (last_y - y);
+                return (SDL_PushEvent(&event) > 0)
+                    || posted;
+            }
 
         default:
-            return SDL_TRUE;
+            break;
         }
     }
-    return SDL_TRUE;
+    return posted;
 }
 
 int
@@ -512,11 +518,12 @@ SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
     SDL_Mouse *mouse = SDL_GetMouse();
     SDL_Pen *pen = SDL_GetPen(penid);
     SDL_Event event;
-    SDL_bool posted;
+    SDL_bool posted = SDL_FALSE;
     SDL_PenStatusInfo *last = &pen->last;
     int mouse_button = button;
 
-    if (!(SDL_IsMousePositionInWindow(mouse->focus, mouse->mouseID, (int) last->x, (int) last->y))) {
+    if ((state == SDL_PRESSED)
+        && !(SDL_IsMousePositionInWindow(mouse->focus, mouse->mouseID, (int) last->x, (int) last->y))) {
         return SDL_FALSE;
     }
 
@@ -528,20 +535,21 @@ SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
         pen->last.buttons &= ~(1 << (button - 1));
     }
 
+    if (SDL_GetEventState(event.pbutton.type) == SDL_ENABLE) {
+        event.pbutton.windowID = mouse->focus ? mouse->focus->id : 0;
+        event.pbutton.which = penid;
+        event.pbutton.button = button;
+        event.pbutton.state = state == SDL_PRESSED ? SDL_PRESSED : SDL_RELEASED;
+        event.pmotion.pen_state = (Uint16) pen->last.buttons | PEN_GET_ERASER_MASK(pen);
+        event.pbutton.x = last->x;
+        event.pbutton.y = last->y;
+        SDL_memcpy(event.pbutton.axes, last->axes, SDL_PEN_NUM_AXES * sizeof(float));
 
-    event.pbutton.windowID = mouse->focus ? mouse->focus->id : 0;
-    event.pbutton.which = penid;
-    event.pbutton.button = button;
-    event.pbutton.state = state == SDL_PRESSED ? SDL_PRESSED : SDL_RELEASED;
-    event.pmotion.pen_state = (Uint16) pen->last.buttons | PEN_GET_ERASER_MASK(pen);
-    event.pbutton.x = last->x;
-    event.pbutton.y = last->y;
-    SDL_memcpy(event.pbutton.axes, last->axes, SDL_PEN_NUM_AXES * sizeof(float));
+        posted = SDL_PushEvent(&event) > 0;
 
-    posted = SDL_PushEvent(&event) > 0;
-
-    if (!posted) {
-        return SDL_FALSE;
+        if (!posted) {
+            return SDL_FALSE;
+        }
     }
 
     /* Mouse emulation */
@@ -576,24 +584,30 @@ SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
 
     switch (pen_mouse_emulation_mode) {
     case PEN_MOUSE_EMULATE:
-        return SDL_SendMouseButton(window, SDL_PEN_MOUSEID, state, mouse_button);
+        return (SDL_SendMouseButton(window, SDL_PEN_MOUSEID, state, mouse_button))
+            || posted;
 
     case PEN_MOUSE_STATELESS:
         /* Report mouse event without updating mouse state */
-        event.button.windowID = event.pbutton.windowID;
         event.button.type = state == SDL_PRESSED ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
-        event.button.which = SDL_PEN_MOUSEID;
-        event.button.state = state;
-        event.button.button = mouse_button;
-        event.button.clicks = 1;
-        event.button.x = (int) last->x;
-        event.button.y = (int) last->y;
-        return SDL_PushEvent(&event) > 0;
+        if (SDL_GetEventState(event.button.type) == SDL_ENABLE) {
+            event.button.windowID = event.pbutton.windowID;
+            event.button.which = SDL_PEN_MOUSEID;
+
+            event.button.state = state;
+            event.button.button = mouse_button;
+            event.button.clicks = 1;
+            event.button.x = (int) last->x;
+            event.button.y = (int) last->y;
+            return (SDL_PushEvent(&event) > 0)
+                || posted;
+        }
         break;
 
     default:
-        return SDL_TRUE;
+        break;
     }
+    return posted;
 }
 
 static void SDLCALL
