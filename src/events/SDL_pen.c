@@ -528,6 +528,7 @@ SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
         pen->last.buttons &= ~(1 << (button - 1));
     }
 
+
     event.pbutton.windowID = mouse->focus ? mouse->focus->id : 0;
     event.pbutton.which = penid;
     event.pbutton.button = button;
@@ -801,7 +802,7 @@ SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 wacom_
        On those platforms, we first try the "patched" ID: */
     if (0 == (wacom_devicetype_id & 0x0000f000u)) {
         const Uint32 lower_mask = 0xfffu;
-        int wacom_devicetype_alt_id = ((wacom_devicetype_id & ~lower_mask) << 4)
+        int wacom_devicetype_alt_id = ((wacom_devicetype_id & ~lower_mask) >> 4)
                                     |  (wacom_devicetype_id &  lower_mask);
 
         name = pen_wacom_identify_tool(wacom_devicetype_alt_id, &num_buttons, &tool_type, &axes);
@@ -810,7 +811,9 @@ SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 wacom_
         }
     }
 #endif
-    name = pen_wacom_identify_tool(wacom_devicetype_id, &num_buttons, &tool_type, &axes);
+    if (name == NULL) {
+        name = pen_wacom_identify_tool(wacom_devicetype_id, &num_buttons, &tool_type, &axes);
+    }
 
     /* Always set GUID (highest-entropy data first) */
     if (wacom_serial_id) {
@@ -834,7 +837,7 @@ SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 wacom_
         pen->info.num_buttons = num_buttons;
     }
     if (pen->type == SDL_PEN_TYPE_PEN) {
-	pen->type = (SDL_PenSubtype) tool_type;
+        pen->type = (SDL_PenSubtype) tool_type;
     }
     if (pen->info.max_tilt == SDL_PEN_INFO_UNKNOWN) {
         /* supposedly: 64 degrees left, 63 right, as reported by the Wacom X11 driver */

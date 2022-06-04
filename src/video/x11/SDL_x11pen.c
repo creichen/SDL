@@ -37,9 +37,10 @@
 #define SDL_PEN_AXIS_VALUATOR_MISSING   -1
 
 typedef struct xinput2_pen {
-    float axis_shift[SDL_PEN_NUM_AXES];
     float axis_min[SDL_PEN_NUM_AXES];
     float axis_max[SDL_PEN_NUM_AXES];
+    float slider_bias;   /* shift value to add to PEN_AXIS_SLIDER (before normalisation) */
+    float rotation_bias; /* rotation to add to PEN_AXIS_ROTATION  (after normalisation) */
     Sint8 valuator_for_axis[SDL_PEN_NUM_AXES]; /* SDL_PEN_AXIS_VALUATOR_MISSING if not supported */
 }  xinput2_pen;
 
@@ -316,6 +317,8 @@ X11_InitPen(_THIS)
             continue;
         }
 
+        pen_device.slider_bias = 0.0f;
+        pen_device.rotation_bias = 0.0f;
         for (k = 0; k < SDL_PEN_NUM_AXES; ++k) {
             pen_device.valuator_for_axis[k] = SDL_PEN_AXIS_VALUATOR_MISSING;
         }
@@ -334,7 +337,9 @@ X11_InitPen(_THIS)
                 Sint8 valuator_nr = val_classinfo->number;
                 Atom vname = val_classinfo->label;
                 int axis = -1;
-                SDL_bool force_positive_axis = SDL_FALSE;
+
+                float min = val_classinfo->min;
+                float max = val_classinfo->max;
 
                 if (vname == pen_atoms.abs_pressure) {
                     axis = SDL_PEN_AXIS_PRESSURE;
@@ -348,25 +353,33 @@ X11_InitPen(_THIS)
                     /* Wacom model-specific axis support */
                     axis = valuator_5_axis;
 
-                    /* cf. xinput2_wacom_peninfo for how this axis is used.
-                       In all current cases, our API wants this value in 0..1, but the xf86 driver
-                       starts at a negative offset, so we normalise here. */
+                    switch (axis) {
+                    case SDL_PEN_AXIS_SLIDER:
+                        /* cf. xinput2_wacom_peninfo for how this axis is used.
+                           In all current cases, our API wants this value in 0..1, but the xf86 driver
+                           starts at a negative offset, so we normalise here. */
+                        pen_device.slider_bias = -min;
+                        max -= min;
+                        min = 0.0f;
+                        break;
 
-                    if (axis == SDL_PEN_AXIS_SLIDER) {
-                        force_positive_axis = SDL_TRUE;
+                    case SDL_PEN_AXIS_ROTATION:
+                        /* The "0" value points to the left, rather than up, so we must
+                           rotate 90 degrees counter-clockwise. */
+                        pen_device.rotation_bias = -0.5f;
+                        break;
+
+                    default:
+                        break;
                     }
                 }
 
                 if (axis >= 0) {
-                    float min = val_classinfo->min;
-                    float max = val_classinfo->max;
-                    float shift = (force_positive_axis) ? -val_classinfo->min : 0.0f;
                     capabilities |= SDL_PEN_AXIS_CAPABILITY(axis);
 
                     pen_device.valuator_for_axis[axis] = valuator_nr;
                     pen_device.axis_min[axis] = min;
                     pen_device.axis_max[axis] = max;
-                    pen_device.axis_shift[axis] = shift;
                 }
                 break;
             }
@@ -445,9 +458,13 @@ xinput2_normalize_pen_axes(const SDL_Pen *peninfo,
     for (axis = 0; axis < SDL_PEN_NUM_AXES; ++axis) {
         int valuator = xpen->valuator_for_axis[axis];
         if (valuator != SDL_PEN_AXIS_VALUATOR_MISSING) {
-            float value = coords[axis] + xpen->axis_shift[axis];
+            float value = coords[axis];
             float min = xpen->axis_min[axis];
             float max = xpen->axis_max[axis];
+
+            if (axis == SDL_PEN_AXIS_SLIDER) {
+                value += xpen->slider_bias;
+            }
 
             /* min ... 0 ... max */
             if (min < 0.0) {
@@ -471,12 +488,28 @@ xinput2_normalize_pen_axes(const SDL_Pen *peninfo,
                 }
             }
 
-            if ((axis == SDL_PEN_AXIS_XTILT
-                 || axis == SDL_PEN_AXIS_YTILT)
-                && peninfo->info.max_tilt > 0.0f) {
-                value *= peninfo->info.max_tilt; /* normalise to physical max */
-            }
+            switch (axis) {
+            case SDL_PEN_AXIS_XTILT:
+            case SDL_PEN_AXIS_YTILT:
+                if (peninfo->info.max_tilt > 0.0f) {
+                    value *= peninfo->info.max_tilt; /* normalise to physical max */
+                }
+                break;
 
+            case SDL_PEN_AXIS_ROTATION:
+                value += xpen->rotation_bias;
+
+                /* handle simple over/underflow */
+                if (value > 1.0f) {
+                    value -= 2.0f;
+                } else if (value < -1.0f) {
+                    value += 2.0f;
+                }
+                break;
+
+            default:
+                break;
+            }
             coords[axis] = value;
         }
     }

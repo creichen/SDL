@@ -1769,7 +1769,7 @@ tablet_tool_handle_hardware_id_wacom(void* data, struct zwp_tablet_tool_v2* tool
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
     Uint32 axis_flags;
     if (SDL_PenModifyFromWacomID(pen, id_lo, id_hi, &axis_flags)) {
-	SDL_PenModifyAddCapabilities(pen, axis_flags);
+        SDL_PenModifyAddCapabilities(pen, axis_flags);
     }
 }
 
@@ -1837,10 +1837,10 @@ tablet_tool_handle_removed(void* data, struct zwp_tablet_tool_v2* tool)
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
     if (pen) {
         SDL_PenModifyEnd(pen, SDL_FALSE);
-	Wayland_tool_destroy(tool);
-	sdltool->tablet->current_pen.builder = NULL;
+        Wayland_tool_destroy(tool);
+        sdltool->tablet->current_pen.builder = NULL;
     } else {
-	zwp_tablet_tool_v2_destroy(tool);
+        zwp_tablet_tool_v2_destroy(tool);
     }
 }
 
@@ -1931,7 +1931,7 @@ tablet_tool_handle_pressure(void* data, struct zwp_tablet_tool_v2* tool, uint32_
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
     input->current_pen.update_status.axes[SDL_PEN_AXIS_PRESSURE] = (float) (pressure / 65535.0);
     if (pressure) {
-	    input->current_pen.update_status.axes[SDL_PEN_AXIS_DISTANCE] = 0.0f;
+            input->current_pen.update_status.axes[SDL_PEN_AXIS_DISTANCE] = 0.0f;
     }
 }
 
@@ -1942,7 +1942,7 @@ tablet_tool_handle_distance(void* data, struct zwp_tablet_tool_v2* tool, uint32_
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
     input->current_pen.update_status.axes[SDL_PEN_AXIS_DISTANCE] = (float) (distance / 65535.0);
     if (distance) {
-	    input->current_pen.update_status.axes[SDL_PEN_AXIS_PRESSURE] = 0.0f;
+            input->current_pen.update_status.axes[SDL_PEN_AXIS_PRESSURE] = 0.0f;
     }
 }
 
@@ -1988,8 +1988,9 @@ tablet_tool_handle_rotation(void* data, struct zwp_tablet_tool_v2* tool, wl_fixe
 {
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
-    float rotation = (float) (wl_fixed_to_double(degrees) / 360.0);
-    input->current_pen.update_status.axes[SDL_PEN_AXIS_ROTATION] = rotation;
+    float rotation = (float) (wl_fixed_to_double(degrees) / 180.0);
+    /* map to -1.0f ... 1.0f range: */
+    input->current_pen.update_status.axes[SDL_PEN_AXIS_ROTATION] = rotation > 1.0f ? rotation - 2.0f : rotation;
 }
 
 static void
@@ -2027,7 +2028,7 @@ tablet_tool_handle_frame(void* data, struct zwp_tablet_tool_v2* tool, uint32_t t
     button_mask = input->current_pen.buttons_released;
     for (button = 1; button_mask; ++button, button_mask >>= 1) {
         if (button_mask & 1) {
-	    SDL_SendPenButton(window->sdlwindow, penid, SDL_RELEASED, button);
+            SDL_SendPenButton(window->sdlwindow, penid, SDL_RELEASED, button);
         }
     }
 
@@ -2035,7 +2036,7 @@ tablet_tool_handle_frame(void* data, struct zwp_tablet_tool_v2* tool, uint32_t t
     button_mask = input->current_pen.buttons_pressed;
     for (button = 1; button_mask; ++button, button_mask >>= 1) {
         if (button_mask & 1) {
-	    SDL_SendPenButton(window->sdlwindow, penid, SDL_PRESSED, button);
+            SDL_SendPenButton(window->sdlwindow, penid, SDL_PRESSED, button);
         }
     }
     /* Reset masks for next tool frame */

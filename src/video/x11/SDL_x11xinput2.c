@@ -185,6 +185,7 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
     switch(cookie->evtype) {
         case XI_HierarchyChanged:
         case XI_DeviceChanged:
+            fprintf(stderr, "[X11] Re-discovery requested\n");
             X11_InitPen(_this);
             break;
 
