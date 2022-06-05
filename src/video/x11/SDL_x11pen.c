@@ -80,7 +80,7 @@ typedef enum {
 /* Information to identify pens during discovery */
 typedef struct {
     sdl_pen_vendor vendor;
-    SDL_PenGUID guid;
+    SDL_GUID guid;
     Uint32 devicetype_id, serial; /* used by PEN_VENDOR_WACOM */
     Uint32 deviceid;
 } pen_identity;
@@ -182,10 +182,10 @@ xinput2_pen_evdevid(_THIS, int deviceid)
 
 
 /* Gets reasonably-unique GUID for the device */
-static SDL_PenGUID
+static SDL_GUID
 xinput2_pen_get_generic_guid(_THIS, int deviceid)
 {
-    SDL_PenGUID guid;
+    SDL_GUID guid;
     Uint32 evdevid = xinput2_pen_evdevid(_this, deviceid); /* also initialises pen_atoms  */
     SDL_memset(guid.data, 0, sizeof(guid));
     SDL_memcpy(guid.data, &evdevid, 4);

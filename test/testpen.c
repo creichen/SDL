@@ -162,7 +162,7 @@ dump_state(void)
     SDL_Log("Found %d pens\n", SDL_NumPens());
     for (i = 0; i < SDL_NumPens(); ++i) {
         SDL_PenID penid = SDL_PenIDForIndex(i);
-        SDL_PenGUID guid = SDL_PenGUIDForPenID(penid);
+        SDL_GUID guid = SDL_PenGUIDForPenID(penid);
         char guid_str[33];
         float axes[SDL_PEN_NUM_AXES];
         float x, y;
@@ -173,7 +173,7 @@ dump_state(void)
         char *type;
         char *buttons_str;
 
-        SDL_JoystickGetGUIDString(guid, guid_str, 33);
+        SDL_GUIDToString(guid, guid_str, 33);
 
         switch (SDL_PenType(penid)) {
         case SDL_PEN_TYPE_ERASER:

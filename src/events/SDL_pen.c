@@ -55,7 +55,7 @@ static struct {
 
 static SDL_PenID pen_invalid = { SDL_PENID_INVALID };
 
-static SDL_PenGUID pen_guid_error = { { 0 } };
+static SDL_GUID pen_guid_error = { { 0 } };
 
 #define PEN_LOAD(penvar, penid, err_return)              \
     SDL_Pen *penvar;                                     \
@@ -71,7 +71,7 @@ static SDL_PenGUID pen_guid_error = { { 0 } };
 
 
 static int
-SDL_PenGUIDCompare(SDL_PenGUID lhs, SDL_PenGUID rhs)
+SDL_GUIDCompare(SDL_GUID lhs, SDL_GUID rhs)
 {
     return SDL_memcmp(lhs.data, rhs.data, sizeof(lhs.data));
 }
@@ -159,14 +159,14 @@ SDL_PenIDForIndex(int device_index)
 }
 
 SDL_PenID
-SDL_PenIDForGUID(SDL_PenGUID guid)
+SDL_PenIDForGUID(SDL_GUID guid)
 {
     int i;
     /* Must do linear search */
     for (i = 0; i < pen_handler.pens_known; ++i) {
         SDL_Pen *pen = &pen_handler.pens[i];
 
-        if (0 == SDL_PenGUIDCompare(guid, pen->guid)) {
+        if (0 == SDL_GUIDCompare(guid, pen->guid)) {
             return pen->header.id;
         }
     }
@@ -189,7 +189,7 @@ SDL_PenAttached(SDL_PenID penid)
     return (pen->header.flags & SDL_PEN_FLAG_DETACHED) ? SDL_FALSE : SDL_TRUE;
 }
 
-SDL_PenGUID
+SDL_GUID
 SDL_PenGUIDForPenID(SDL_PenID penid)
 {
     PEN_LOAD(pen, penid, pen_guid_error);
@@ -350,7 +350,7 @@ SDL_PenModifyEnd(SDL_Pen * pen, SDL_bool attach)
         }
 
         /* sanity-check GUID */
-        if (0 == SDL_PenGUIDCompare(pen->guid, pen_guid_error)) {
+        if (0 == SDL_GUIDCompare(pen->guid, pen_guid_error)) {
             SDL_Log("Error: pen %u: has GUID 0", pen->header.id);
         }
 
@@ -806,10 +806,10 @@ pen_wacom_identify_tool(Uint32 requested_wacom_id, int *num_buttons, int *tool_t
     return NULL;
 }
 
-SDL_PenGUID
+SDL_GUID
 SDL_PenWacomGUID(Uint32 wacom_devicetype_id, Uint32 wacom_serial_id)
 {
-    SDL_PenGUID guid = { { 0 } };
+    SDL_GUID guid = { { 0 } };
     int i;
 
     for (i = 0; i < 4; ++i) {

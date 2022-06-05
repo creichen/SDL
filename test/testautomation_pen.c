@@ -20,6 +20,7 @@
 #define SDL_PenModifyBegin SDL_SUT_PenModifyBegin
 #define SDL_PenModifyAddCapabilities SDL_SUT_PenModifyAddCapabilities
 #define SDL_PenModifyFromWacomID SDL_SUT_PenModifyFromWacomID
+#define SDL_PenWacomGUID SDL_SUT_PenWacomGUID
 #define SDL_PenModifyEnd SDL_SUT_PenModifyEnd
 #define SDL_PenGCMark SDL_SUT_PenGCMark
 #define SDL_PenGCSweep SDL_SUT_PenGCSweep
@@ -142,7 +143,7 @@ typedef struct {  /* Collection of pen (de)allocation information  */
     unsigned int deallocated_id_flags; /* ith bits set to 1 if the ith test_id is deallocated */
     unsigned int deallocated_deviceinfo_flags; /* ith bits set to 1 if deviceinfo as *int with value i was deallocated */
     SDL_PenID ids[PEN_NUM_TEST_IDS];
-    SDL_PenGUID guids[PEN_NUM_TEST_IDS];
+    SDL_GUID guids[PEN_NUM_TEST_IDS];
     int num_ids;
     int initial_pen_count;
 } pen_testdata;
@@ -564,7 +565,7 @@ _pen_simulate_init(pen_testdata *ptest, SDL_Pen *simulated_pens, int num_pens)
 
 /* "standard" pen registration process */
 static SDL_Pen *
-_pen_register(SDL_PenID penid, SDL_PenGUID guid, char *name, Uint32 flags)
+_pen_register(SDL_PenID penid, SDL_GUID guid, char *name, Uint32 flags)
 {
     SDL_Pen *pen = SDL_PenModifyBegin(penid);
     pen->guid = guid;
@@ -719,7 +720,7 @@ pen_hotplugging(void *arg)
 {
     pen_testdata ptest;
     deviceinfo_backup *backup = _setup_test(&ptest, 3);
-    SDL_PenGUID checkguid;
+    SDL_GUID checkguid;
 
     /* Add two pens */
     SDL_PenGCMark();
@@ -1225,7 +1226,7 @@ pen_movementAndAxes(void *arg)
 
 static void
 _expect_pen_config(SDL_PenID penid,
-                   SDL_PenGUID expected_guid,
+                   SDL_GUID expected_guid,
                    SDL_bool expected_attached,
                    char *expected_name,
                    int expected_type,
@@ -1236,7 +1237,13 @@ _expect_pen_config(SDL_PenID penid,
     SDL_PenCapabilityInfo actual_info = { 0 };
     const char *actual_name = SDL_PenName(penid);
 
-    SDLTest_AssertEq1(int, "%d", 0, SDL_PenGUIDCompare(expected_guid, SDL_PenGUIDForPenID(penid)), "Pen %u guid equality", penid);
+    if (penid == SDL_PENID_INVALID) {
+            SDLTest_Assert(0, "Invalid pen ID");
+            return;
+    }
+
+    SDLTest_AssertEq1(int, "%d", 0, SDL_GUIDCompare(expected_guid, SDL_PenGUIDForPenID(penid)), "Pen %u guid equality", penid);
+
     SDLTest_AssertCheck(0 == SDL_strcmp(expected_name, actual_name),
                         "Expected name='%s' vs actual='%s'", expected_name, actual_name);
 
@@ -1346,7 +1353,7 @@ pen_initAndInfo(void *arg)
     {
         const Uint32 wacom_type_id   = 0x0912;
         const Uint32 wacom_serial_id = 0xa0b1c2d3;
-        SDL_PenGUID guid = {
+        SDL_GUID guid = {
             { 0, 0, 0, 0,
               0, 0, 0, 0,
               'W', 'A', 'C', 'M',
@@ -1597,7 +1604,7 @@ static const SDLTest_TestCaseReference penTest2 =
         { (SDLTest_TestCaseFp)pen_hotplugging, "pen_hotplugging", "Hotplug pens and validate their status, including SDL_PenAttached", TEST_ENABLED };
 
 static const SDLTest_TestCaseReference penTest3 =
-        { (SDLTest_TestCaseFp)pen_GUIDs, "pen_GUIDs", "Check SDL_PenGUID operations", TEST_ENABLED };
+        { (SDLTest_TestCaseFp)pen_GUIDs, "pen_GUIDs", "Check Pen SDL_GUID operations", TEST_ENABLED };
 
 static const SDLTest_TestCaseReference penTest4 =
         { (SDLTest_TestCaseFp)pen_buttonReporting, "pen_buttonReporting", "Check pen button presses", TEST_ENABLED };

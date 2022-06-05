@@ -39,7 +39,7 @@
  *    to the same physical device during a session.  Formerly valid ::SDL_PenID values remain valid
  *    even if a device disappears.
  *
- *  For identifying pens across sessions, the API provides the type ::SDL_PenGUID .
+ *  For identifying pens across sessions, the API provides the type ::SDL_GUID .
  */
 
 #ifndef SDL_pen_h_
@@ -47,7 +47,7 @@
 
 #include "SDL_stdinc.h"
 #include "SDL_error.h"
-#include "SDL_joystick.h" /* For SDL_JoystickGUID */
+#include "SDL_guid.h"
 
 #include "begin_code.h"
 /* Set up for C function definitions, even when using C++ */
@@ -58,8 +58,6 @@ extern "C" {
 typedef Uint32 SDL_PenID;               /**< SDL_PenIDs identify pens uniquely within a session */
 
 #define SDL_PENID_INVALID ((Uint32)0)   /**< Reserved invalid ::SDL_PenID is valid */
-
-typedef SDL_JoystickGUID SDL_PenGUID;   /**< UUID for pens, suitable for pesisting across sessions */
 
 #define SDL_PEN_MOUSEID ((Uint32)-2)    /**< Device ID for mouse events triggered by pen events */
 
@@ -152,7 +150,7 @@ extern DECLSPEC int SDLCALL SDL_NumPens(void);
  * The iteration order and number of valid indices may change after
  * any call to event processing (e.g., ::SDL_PollEvent()) or to the graphics, or windowing subsystems.
  *
- * Use ::SDL_PenID to track pens throughout a session, or ::SDL_PenGUID for
+ * Use ::SDL_PenID to track pens throughout a session, or ::SDL_GUID for
  * tracking across sessions.
  *
  * \param device_index An index between 0 and ::SDL_NumPens() - 1 (inclusive).
@@ -187,7 +185,7 @@ extern DECLSPEC SDL_PenID SDLCALL SDL_PenIDForIndex(int device_index);
 extern DECLSPEC Uint32 SDLCALL SDL_PenStatus(SDL_PenID pen, float * x, float * y, float * axes, size_t num_axes);
 
 /**
- * Retrieves an ::SDL_PenID for the given ::SDL_PenGUID.
+ * Retrieves an ::SDL_PenID for the given ::SDL_GUID.
  *
  * \param guid A pen GUID.
  *
@@ -195,12 +193,12 @@ extern DECLSPEC Uint32 SDLCALL SDL_PenStatus(SDL_PenID pen, float * x, float * y
  *
  * \since This function is available since SDL 2.TBD
  *
- * \sa SDL_PenGUID()
+ * \sa SDL_GUID()
  */
-extern DECLSPEC SDL_PenID SDLCALL SDL_PenIDForGUID(SDL_PenGUID guid);
+extern DECLSPEC SDL_PenID SDLCALL SDL_PenIDForGUID(SDL_GUID guid);
 
 /**
- * Retrieves the ::SDL_PenGUID for a given ::SDL_PenID.
+ * Retrieves the ::SDL_GUID for a given ::SDL_PenID.
  *
  * \param penid The pen to query.
  *
@@ -211,7 +209,7 @@ extern DECLSPEC SDL_PenID SDLCALL SDL_PenIDForGUID(SDL_PenGUID guid);
  *
  * \sa SDL_PenForID()
  */
-extern DECLSPEC SDL_PenGUID SDLCALL SDL_PenGUIDForPenID(SDL_PenID penid);
+extern DECLSPEC SDL_GUID SDLCALL SDL_PenGUIDForPenID(SDL_PenID penid);
 
 /**
  * Checks whether a pen is still attached.

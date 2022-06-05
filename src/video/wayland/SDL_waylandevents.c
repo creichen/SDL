@@ -731,6 +731,7 @@ touch_handler_down(void *data, struct wl_touch *touch, unsigned int serial,
     const float y = dbly / window_data->sdlwindow->h;
 
     touch_add(id, x, y, surface);
+
     SDL_SendTouch((SDL_TouchID)(intptr_t)touch, (SDL_FingerID)id, window_data->sdlwindow, SDL_TRUE, x, y, 1.0f);
 }
 

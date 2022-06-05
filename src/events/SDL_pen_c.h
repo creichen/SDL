@@ -58,7 +58,7 @@ typedef struct SDL_Pen {
     SDL_PenStatusInfo last;      /* Last reported status, normally read-only for backend */
 
     /* Backend: MUST initialise this block when pen is first registered: */
-    SDL_PenGUID guid;            /* GUID, MUST be set by backend.
+    SDL_GUID guid;            /* GUID, MUST be set by backend.
                                     MUST be unique (no other pen ID with same GUID).
                                     SHOULD be persistent across sessions. */
 
@@ -154,9 +154,9 @@ extern int SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Ui
  *
  * \param wacom_devicetype_id The Wacom-specific device type identifier
  * \param wacom_serial_id The Wacom-specific serial number
- * \returns The ::SDL_PenGUID for the specified serial IDs
+ * \returns The ::SDL_GUID for the specified serial IDs
  */
-extern SDL_PenGUID SDL_PenWacomGUID(Uint32 wacom_devicetype_id, Uint32 wacom_serial_id);
+extern SDL_GUID SDL_PenWacomGUID(Uint32 wacom_devicetype_id, Uint32 wacom_serial_id);
 
 /**
  * (Only for backend driver) Finish updating a pen.
