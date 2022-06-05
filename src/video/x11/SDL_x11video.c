@@ -472,7 +472,9 @@ X11_VideoInit(_THIS)
 
     X11_InitTouch(_this);
 
+#ifdef SDL_VIDEO_DRIVER_X11_XINPUT2
     X11_InitPen(_this);
+#endif
 
     return 0;
 }
