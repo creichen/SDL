@@ -1851,24 +1851,33 @@ tablet_tool_handle_done(void* data, struct zwp_tablet_tool_v2* tool)
 static void
 Wayland_tool_destroy(struct zwp_tablet_tool_v2 *tool)
 {
-    struct SDL_WaylandTool *waypen = zwp_tablet_tool_v2_get_user_data(tool);
-    if (waypen) {
-        Wayland_tool_builder_reset(waypen->tablet);
-        SDL_free(waypen);
+    if (tool) {
+        struct SDL_WaylandTool *waypen = zwp_tablet_tool_v2_get_user_data(tool);
+        if (waypen) {
+            SDL_free(waypen);
+        }
+        zwp_tablet_tool_v2_destroy(tool);
     }
-    zwp_tablet_tool_v2_destroy(tool);
 }
+
+static void tablet_object_list_remove(struct SDL_WaylandTabletObjectListNode* head, void* object);
 
 static void
 tablet_tool_handle_removed(void* data, struct zwp_tablet_tool_v2* tool)
 {
+    struct SDL_WaylandTool *waypen = zwp_tablet_tool_v2_get_user_data(tool);
+    struct SDL_WaylandTool *sdltool = data;
+    struct SDL_WaylandTabletInput *input = sdltool->tablet;
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
     if (pen) {
         SDL_PenModifyEnd(pen, SDL_FALSE);
+        Wayland_tool_builder_reset(waypen->tablet);
         Wayland_tool_destroy(tool);
     } else {
         zwp_tablet_tool_v2_destroy(tool);
     }
+
+    tablet_object_list_remove(input->tools, tool);
 }
 
 static void
@@ -2136,6 +2145,25 @@ void tablet_object_list_destroy(struct SDL_WaylandTabletObjectListNode* head, vo
     }
 }
 
+void tablet_object_list_remove(struct SDL_WaylandTabletObjectListNode* head, void* object)
+{
+    struct SDL_WaylandTabletObjectListNode** head_p = &head;
+    while (*head_p && (*head_p)->object != object) {
+        head_p = &((*head_p)->next);
+    }
+
+    if (*head_p) {
+        struct SDL_WaylandTabletObjectListNode* object_head = *head_p;
+
+        if (object_head == head) {
+            /* Must not remove head node */
+            head->object = NULL;
+        } else {
+            *head_p = object_head->next;
+            SDL_free(object_head);
+        }
+    }
+}
 
 static void
 tablet_seat_handle_tablet_added(void* data, struct zwp_tablet_seat_v2* seat, struct zwp_tablet_v2* tablet)
