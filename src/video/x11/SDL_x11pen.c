@@ -31,7 +31,7 @@
 #define PEN_ERASER_ID_MAXLEN 256      /* Max # characters of device name to scan */
 #define PEN_ERASER_NAME_TAG "eraser"  /* String constant to identify erasers */
 
-#define DEBUG_PEN 0
+#define DEBUG_PEN (0 | SDL_PEN_DEBUG_NOID | SDL_PEN_DEBUG|NONWACOM | SDL_PEN_DEBUG_UNKNOWN_WACOM)
 
 
 #define SDL_PEN_AXIS_VALUATOR_MISSING   -1
@@ -81,6 +81,7 @@ typedef enum {
 typedef struct {
     sdl_pen_vendor vendor;
     SDL_GUID guid;
+    SDL_PenSubtype heuristic_type; /* Distinguish pen+eraser devices with shared bus ID */
     Uint32 devicetype_id, serial; /* used by PEN_VENDOR_WACOM */
     Uint32 deviceid;
 } pen_identity;
@@ -170,6 +171,7 @@ xinput2_pen_get_int_property(_THIS, int deviceid, Atom property, Sint32* dest, s
 static Uint32
 xinput2_pen_evdevid(_THIS, int deviceid)
 {
+#if !(SDL_PEN_DEBUG_NOID)
     Sint32 ids[2];
 
     pen_atoms_ensure_initialized(_this);
@@ -178,17 +180,27 @@ xinput2_pen_evdevid(_THIS, int deviceid)
         return 0;
     }
     return ((ids[0] << 16) | (ids[1] & 0xffff));
+#else /* Testing: pretend that we have no ID (not sure if this can happen IRL) */
+    return 0;
+#endif
 }
 
 
 /* Gets reasonably-unique GUID for the device */
 static SDL_GUID
-xinput2_pen_get_generic_guid(_THIS, int deviceid)
+xinput2_pen_get_generic_guid(_THIS, pen_identity pident, int deviceid)
 {
     SDL_GUID guid;
     Uint32 evdevid = xinput2_pen_evdevid(_this, deviceid); /* also initialises pen_atoms  */
+
     SDL_memset(guid.data, 0, sizeof(guid));
     SDL_memcpy(guid.data, &evdevid, 4);
+    guid.data[12] = pident.heuristic_type; /* distinguish pen and eraser with same evdev ID */
+    if (!evdevid) {
+        /* Fallback: if no evdevid is available; try to at least distinguish devices within the
+           current session.  This is a poor GUID and our last resort. */
+        SDL_memcpy(&guid.data[4], &deviceid, 4);
+    }
 
     return guid;
 }
@@ -197,6 +209,7 @@ xinput2_pen_get_generic_guid(_THIS, int deviceid)
 static SDL_bool
 xinput2_wacom_deviceid(_THIS, int deviceid, Uint32 *wacom_devicetype_id, Uint32 *wacom_serial)
 {
+#if !(SDL_PEN_DEBUG_NONWACOM) /* Can be disabled for testing */
     Sint32 serial_id_buf[3];
     int result;
 
@@ -207,33 +220,8 @@ xinput2_wacom_deviceid(_THIS, int deviceid, Uint32 *wacom_devicetype_id, Uint32 
         *wacom_serial = serial_id_buf[1];
         return SDL_TRUE;
     }
-    return SDL_FALSE;
-}
-
-/* Gets GUID and other identifying information for the device using the best known method */
-static pen_identity
-xinput2_identify_pen(_THIS, int deviceid)
-{
-    pen_identity pident;
-
-    pident.devicetype_id = 0ul;
-    pident.serial = 0ul;
-    pident.deviceid = deviceid;
-
-    if (xinput2_wacom_deviceid(_this, deviceid, &pident.devicetype_id, &pident.serial)) {
-        pident.vendor = SDL_PEN_VENDOR_WACOM;
-        pident.guid = SDL_PenWacomGUID(pident.devicetype_id, pident.serial);
-
-#if DEBUG_PEN
-        printf("[pen] Pen %d reports Wacom device_id %x\n",
-               deviceid, pident.devicetype_id);
 #endif
-
-    } else {
-        pident.vendor = SDL_PEN_VENDOR_UNKNOWN;
-        pident.guid = xinput2_pen_get_generic_guid(_this, deviceid);
-    }
-    return pident;
+    return SDL_FALSE;
 }
 
 /* Heuristically determines if device is an eraser */
@@ -300,6 +288,37 @@ xinput2_pen_is_eraser(_THIS, int deviceid, char* devicename)
     return (SDL_strstr(dev_name, PEN_ERASER_NAME_TAG)) ? SDL_TRUE : SDL_FALSE;
 }
 
+/* Gets GUID and other identifying information for the device using the best known method */
+static pen_identity
+xinput2_identify_pen(_THIS, int deviceid, char *name)
+{
+    pen_identity pident;
+
+    pident.devicetype_id = 0ul;
+    pident.serial = 0ul;
+    pident.deviceid = deviceid;
+    pident.heuristic_type = SDL_PEN_TYPE_PEN;
+
+    if (xinput2_pen_is_eraser(_this, deviceid, name)) {
+        pident.heuristic_type = SDL_PEN_TYPE_ERASER;
+    }
+
+    if (xinput2_wacom_deviceid(_this, deviceid, &pident.devicetype_id, &pident.serial)) {
+        pident.vendor = SDL_PEN_VENDOR_WACOM;
+        pident.guid = SDL_PenWacomGUID(pident.devicetype_id, pident.serial);
+
+#if DEBUG_PEN
+        printf("[pen] Pen %d reports Wacom device_id %x\n",
+               deviceid, pident.devicetype_id);
+#endif
+
+    } else {
+        pident.vendor = SDL_PEN_VENDOR_UNKNOWN;
+        pident.guid = xinput2_pen_get_generic_guid(_this, pident, deviceid);
+    }
+    return pident;
+}
+
 static void
 xinput2_pen_free_deviceinfo(Uint32 deviceid, void *x11_peninfo, void* context)
 {
@@ -355,8 +374,8 @@ xinput2_vendor_peninfo(_THIS, const XIDeviceInfo *dev, SDL_Pen *pen, pen_identit
             printf("[pen] Could not identify wacom pen %d with device id %x, using default settings\n",
                    pident.deviceid, pident.devicetype_id);
 #endif
+            break;
         }
-        return;
     }
 
     default:
@@ -370,11 +389,7 @@ xinput2_vendor_peninfo(_THIS, const XIDeviceInfo *dev, SDL_Pen *pen, pen_identit
 
     SDL_strlcpy(pen->name, dev->name, SDL_PEN_MAX_NAME);
 
-    if (xinput2_pen_is_eraser(_this, dev->deviceid, dev->name)) {
-        pen->type = SDL_PEN_TYPE_ERASER;
-    } else {
-        pen->type = SDL_PEN_TYPE_PEN;
-    }
+    pen->type = pident.heuristic_type;
 }
 
 void
@@ -423,7 +438,7 @@ X11_InitPen(_THIS)
             pen_device.valuator_for_axis[k] = SDL_PEN_AXIS_VALUATOR_MISSING;
         }
 
-        pident = xinput2_identify_pen(_this, dev->deviceid);
+        pident = xinput2_identify_pen(_this, dev->deviceid, dev->name);
 
         pen_id = SDL_PenIDForGUID(pident.guid);
         if (pen_id == SDL_PENID_INVALID) {
@@ -517,7 +532,7 @@ X11_InitPen(_THIS)
 
 #if DEBUG_PEN
             printf("[pen] pen %d [%04x] valuators pressure=%d, xtilt=%d, ytilt=%d [%s]\n",
-                   pen->header.id.id, pen->header.flags,
+                   pen->header.id, pen->header.flags,
                    pen_device.valuator_for_axis[SDL_PEN_AXIS_PRESSURE],
                    pen_device.valuator_for_axis[SDL_PEN_AXIS_XTILT],
                    pen_device.valuator_for_axis[SDL_PEN_AXIS_YTILT],

@@ -27,6 +27,18 @@
 #include "SDL_mouse_c.h"
 #include "../../include/SDL_pen.h"
 
+
+/* For testing alternate code paths: */
+#define SDL_PEN_DEBUG_NOID            0  /* Pen device does not supply ID / ID is some default value
+                                            affects: SDL_x11pen.c
+                                                     SDL_waylandevents.c  */
+#define SDL_PEN_DEBUG_NONWACOM        0  /* Pretend that no attached device is a Wacom device
+                                            affects: SDL_x11pen.c
+                                                     SDL_waylandevents.c  */
+#define SDL_PEN_DEBUG_UNKNOWN_WACOM   0  /* Pretend that any attached Wacom device is of an unknown make
+                                            affects: SDL_PenModifyFromWacomID() */
+
+
 #define SDL_PEN_TYPE_NONE         0 /**< Pen type for non-pens (use to cancel pen registration) */
 
 #define SDL_PEN_MAX_NAME 64

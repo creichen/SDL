@@ -47,6 +47,7 @@ struct SDL_WaylandTabletInput {
     Uint32 num_pens; /* next pen ID is num_pens+1 */
     struct SDL_WaylandCurrentPen {
         SDL_Pen *builder; /* pen that is being defined or receiving updates, if any */
+        SDL_bool builder_guid_complete;  /* have complete/precise GUID information */
         SDL_PenStatusInfo update_status; /* collects pen update information before sending event */
         Uint16 buttons_pressed;
         Uint16 buttons_released;

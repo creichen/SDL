@@ -312,7 +312,7 @@ SDL_PenModifyEnd(SDL_Pen * pen, SDL_bool attach)
         if (!is_new) {
             SDL_Log("Error: attempt to remove known pen %u", pen->header.id);
 
-            /* Treat as detached pen instead */
+            /* Treat as detached pen of unknown type instead */
             pen->type = SDL_PEN_TYPE_PEN;
             attach = SDL_FALSE;
         } else {
@@ -638,6 +638,10 @@ SDL_PenUpdateHint(void *userdata, const char *name, const char *oldvalue, const 
 int
 SDL_PenInit(void)
 {
+#if (SDL_PEN_DEBUG_NOID | SDL_PEN_DEBUG_NONWACOM | SDL_PEN_DEBUG_UNKNOWN_WACOM)
+    printf("[pen] Debugging enabled: noid=%d  nonwacom=%d  unknown-wacom=%d\n",
+           SDL_PEN_DEBUG_NOID, SDL_PEN_DEBUG_NONWACOM, SDL_PEN_DEBUG_UNKNOWN_WACOM);
+#endif
     SDL_AddHintCallback(SDL_HINT_PEN_NOT_MOUSE,
                         SDL_PenUpdateHint, &pen_mouse_emulation_mode);
 
@@ -699,6 +703,8 @@ const static char* default_pen_names[PEN_NUM_NAMES] = {
 #define PEN_SPEC_AXES_SHIFT    0
 #define PEN_SPEC_AXES_MASK     0xffff0000u
 
+#define PEN_WACOM_ID_INVALID   0xffffffffu  /* Generic "invalid ID" marker */
+
 #define PEN_SPEC(name, buttons, type, axes) (0                          \
     | (PEN_SPEC_NAME_MASK & ((name) << PEN_SPEC_NAME_SHIFT))            \
     | (PEN_SPEC_BUTTONS_MASK & ((buttons) << PEN_SPEC_BUTTONS_SHIFT))   \
@@ -717,7 +723,7 @@ pen_wacom_identify_tool(Uint32 requested_wacom_id, int *num_buttons, int *tool_t
     struct {
         /* Compress properties to 8 bytes per device in order to keep memory cost well below 1k.
            Could be compressed further with more complex code.  */
-        Uint32 wacom_id;
+        Uint32 wacom_id;  /* Must be != PEN_WACOM_ID_INVALID */
         Uint32 properties;
     } tools[] = {
         {  0x0001, PEN_SPEC(PEN_NAME_AES,      1, SDL_PEN_TYPE_ERASER,   SDL_PEN_AXIS_PRESSURE_MASK) },
@@ -831,6 +837,10 @@ SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 wacom_
     int num_buttons;
     int tool_type;
     int axes;
+
+#if SDL_PEN_DEBUG_UNKNOWN_WACOM
+    wacom_devicetype_id = PEN_WACOM_ID_INVALID; /* force detection to fail */
+#endif
 
 #if defined(__LINUX__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
     /* According to Ping Cheng, the curent Wacom for Linux maintainer, device IDs on Linux

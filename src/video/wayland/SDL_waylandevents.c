@@ -1758,20 +1758,32 @@ tablet_tool_handle_type(void* data, struct zwp_tablet_tool_v2* tool, uint32_t ty
 static void
 tablet_tool_handle_hardware_serial(void* data, struct zwp_tablet_tool_v2* tool, uint32_t serial_hi, uint32_t serial_lo)
 {
-    SDL_Pen* pen = Wayland_get_current_pen(data, tool);
-    /* Write in such a way that they complement the Wacom hardware IDs */
-    SDL_memcpy(&pen->guid.data[0], &serial_lo, 4);
-    SDL_memcpy(&pen->guid.data[12], &serial_hi, 4);
+#if !(SDL_PEN_DEBUG_NOID)
+    struct SDL_WaylandTool *sdltool = data;
+    struct SDL_WaylandTabletInput *input = sdltool->tablet;
+
+    if (!input->current_pen.builder_guid_complete) {
+        SDL_Pen* pen = Wayland_get_current_pen(data, tool);
+        SDL_memcpy(&pen->guid.data[4], &serial_lo, 4);
+        SDL_memcpy(&pen->guid.data[0], &serial_hi, 4);
+    }
+#endif
 }
 
 static void
 tablet_tool_handle_hardware_id_wacom(void* data, struct zwp_tablet_tool_v2* tool, uint32_t id_hi, uint32_t id_lo)
 {
+#if !(SDL_PEN_DEBUG_NOID | SDL_PEN_DEBUG_NONWACOM)
+    struct SDL_WaylandTool *sdltool = data;
+    struct SDL_WaylandTabletInput *input = sdltool->tablet;
+
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
     Uint32 axis_flags;
     if (SDL_PenModifyFromWacomID(pen, id_lo, id_hi, &axis_flags)) {
         SDL_PenModifyAddCapabilities(pen, axis_flags);
+        input->current_pen.builder_guid_complete = SDL_TRUE;
     }
+#endif
 }
 
 static void
@@ -1781,7 +1793,7 @@ tablet_tool_handle_capability(void* data, struct zwp_tablet_tool_v2* tool, uint3
 
     switch (capability) {
     case ZWP_TABLET_TOOL_V2_CAPABILITY_TILT:
-        SDL_PenModifyAddCapabilities(pen, SDL_PEN_AXIS_XTILT | SDL_PEN_AXIS_YTILT);
+        SDL_PenModifyAddCapabilities(pen, SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK);
         break;
 
     case ZWP_TABLET_TOOL_V2_CAPABILITY_PRESSURE:
@@ -1810,15 +1822,30 @@ tablet_tool_handle_capability(void* data, struct zwp_tablet_tool_v2* tool, uint3
 }
 
 static void
+Wayland_tool_builder_reset(struct SDL_WaylandTabletInput *input)
+{
+    input->current_pen.builder = NULL;
+    input->current_pen.builder_guid_complete = SDL_FALSE;
+}
+
+static void
 tablet_tool_handle_done(void* data, struct zwp_tablet_tool_v2* tool)
 {
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
 
+    if (!input->current_pen.builder_guid_complete) {
+        /* No complete GUID? */
+
+        /* Partial GUID uses first 8 bytes, but might not capture device type if e.g. pen+eraser share evdev ID */
+        /* If we have no GUID information at all, we at least can use the pen type */
+        pen->guid.data[12] = pen->type;
+    }
+
     SDL_PenModifyEnd(pen, SDL_TRUE);
 
-    input->current_pen.builder = NULL;
+    Wayland_tool_builder_reset(input);
 }
 
 static void
@@ -1826,6 +1853,7 @@ Wayland_tool_destroy(struct zwp_tablet_tool_v2 *tool)
 {
     struct SDL_WaylandTool *waypen = zwp_tablet_tool_v2_get_user_data(tool);
     if (waypen) {
+        Wayland_tool_builder_reset(waypen->tablet);
         SDL_free(waypen);
     }
     zwp_tablet_tool_v2_destroy(tool);
@@ -1834,12 +1862,10 @@ Wayland_tool_destroy(struct zwp_tablet_tool_v2 *tool)
 static void
 tablet_tool_handle_removed(void* data, struct zwp_tablet_tool_v2* tool)
 {
-    struct SDL_WaylandTool *sdltool = data;
     SDL_Pen* pen = Wayland_get_current_pen(data, tool);
     if (pen) {
         SDL_PenModifyEnd(pen, SDL_FALSE);
         Wayland_tool_destroy(tool);
-        sdltool->tablet->current_pen.builder = NULL;
     } else {
         zwp_tablet_tool_v2_destroy(tool);
     }
