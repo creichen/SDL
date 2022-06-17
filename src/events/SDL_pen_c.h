@@ -46,6 +46,7 @@
 
 #define SDL_PEN_MAX_NAME 64
 
+#define SDL_PEN_FLAG_ERROR    (1ul << 28) /* Printed an internal API usage error about this pen (used to prevent spamming) */
 #define SDL_PEN_FLAG_NEW      (1ul << 29) /* Pen was registered in most recent call to SDL_PenRegisterBegin() */
 #define SDL_PEN_FLAG_DETACHED (1ul << 30) /* Detached (not re-registered before last SDL_PenGCSweep()) */
 #define SDL_PEN_FLAG_STALE    (1ul << 31) /* Not re-registered since last SDL_PenGCMark() */

@@ -310,7 +310,10 @@ SDL_PenModifyEnd(SDL_Pen * pen, SDL_bool attach)
     if (pen->type == SDL_PEN_TYPE_NONE) {
         /* remove pen */
         if (!is_new) {
-            SDL_Log("Error: attempt to remove known pen %u", pen->header.id);
+	    if (!(pen->header.flags & SDL_PEN_FLAG_ERROR)) {
+		SDL_Log("Error: attempt to remove known pen %u", pen->header.id);
+		pen->header.flags |= SDL_PEN_FLAG_ERROR;
+	    }
 
             /* Treat as detached pen of unknown type instead */
             pen->type = SDL_PEN_TYPE_PEN;

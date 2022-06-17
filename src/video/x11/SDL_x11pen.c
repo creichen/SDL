@@ -392,6 +392,28 @@ xinput2_vendor_peninfo(_THIS, const XIDeviceInfo *dev, SDL_Pen *pen, pen_identit
     pen->type = pident.heuristic_type;
 }
 
+/* Does this device have a valuator for pressure sensitivity? */
+static SDL_bool
+xinput2_device_is_pen(const XIDeviceInfo *dev)
+{
+    int classct;
+    for (classct = 0; classct < dev->num_classes; ++classct) {
+	const XIAnyClassInfo *classinfo = dev->classes[classct];
+
+	switch (classinfo->type) {
+            case XIValuatorClass: {
+                XIValuatorClassInfo *val_classinfo = (XIValuatorClassInfo*) classinfo;
+                Atom vname = val_classinfo->label;
+
+                if (vname == pen_atoms.abs_pressure) {
+		    return SDL_TRUE;
+		}
+	    }
+	}
+    }
+    return SDL_FALSE;
+}
+
 void
 X11_InitPen(_THIS)
 {
@@ -428,7 +450,7 @@ X11_InitPen(_THIS)
         int k;
 
         /* Only track physical devices that are enabled */
-        if (dev->use != XISlavePointer || dev->enabled == 0) {
+        if (dev->use != XISlavePointer || dev->enabled == 0 || !xinput2_device_is_pen(dev)) {
             continue;
         }
 
