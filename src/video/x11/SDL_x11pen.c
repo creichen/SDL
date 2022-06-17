@@ -314,7 +314,11 @@ xinput2_identify_pen(_THIS, int deviceid, char *name)
     } else {
         pident.vendor = SDL_PEN_VENDOR_UNKNOWN;
     }
-    xinput2_pen_update_generic_guid(_this, &pident, deviceid);
+    if (!pident.serial) {
+        /* If the pen has a serial number, we can move it across tablets and retain its identity.
+           Otherwise, we use the evdev ID as part of its GUID, which may mean that we identify it with the tablet. */
+        xinput2_pen_update_generic_guid(_this, &pident, deviceid);
+    }
     SDL_PenUpdateGUIDForType(&pident.guid, pident.heuristic_type);
     return pident;
 }
