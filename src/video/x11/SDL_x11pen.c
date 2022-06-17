@@ -195,7 +195,7 @@ xinput2_pen_update_generic_guid(_THIS, pen_identity *pident, int deviceid)
     if (!evdevid) {
         /* Fallback: if no evdevid is available; try to at least distinguish devices within the
            current session.  This is a poor GUID and our last resort. */
-	evdevid = deviceid;
+        evdevid = deviceid;
     }
     SDL_PenUpdateGUIDForGeneric(&pident->guid, 0, evdevid);
 }
@@ -214,7 +214,7 @@ xinput2_wacom_deviceid(_THIS, int deviceid, Uint32 *wacom_devicetype_id, Uint32 
         *wacom_devicetype_id = serial_id_buf[2];
         *wacom_serial = serial_id_buf[1];
 #if SDL_PEN_DEBUG_NOSERIAL_WACOM /* Disabled for testing? */
-	*wacom_serial = 0;
+        *wacom_serial = 0;
 #endif
         return SDL_TRUE;
     }
@@ -398,18 +398,18 @@ xinput2_device_is_pen(const XIDeviceInfo *dev)
 {
     int classct;
     for (classct = 0; classct < dev->num_classes; ++classct) {
-	const XIAnyClassInfo *classinfo = dev->classes[classct];
+        const XIAnyClassInfo *classinfo = dev->classes[classct];
 
-	switch (classinfo->type) {
+        switch (classinfo->type) {
             case XIValuatorClass: {
                 XIValuatorClassInfo *val_classinfo = (XIValuatorClassInfo*) classinfo;
                 Atom vname = val_classinfo->label;
 
                 if (vname == pen_atoms.abs_pressure) {
-		    return SDL_TRUE;
-		}
-	    }
-	}
+                    return SDL_TRUE;
+                }
+            }
+        }
     }
     return SDL_FALSE;
 }

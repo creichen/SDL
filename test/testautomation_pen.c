@@ -201,7 +201,7 @@ _pen_unusedIDs(pen_testdata *tracker, int count)
         for (k = 0; k < 15; ++k) {
             tracker->guids[index].data[k] = (16 * k) + index;
         }
-	tracker->guids[index].data[15] = ++guidmod;
+        tracker->guids[index].data[15] = ++guidmod;
 
         ++synthetic_penid;
         ++index;
@@ -1371,7 +1371,7 @@ pen_initAndInfo(void *arg)
 
         pen = SDL_PenModifyBegin(ptest.ids[5]);
         SDL_PenModifyForWacomID(pen, wacom_type_id, &mask);
-	SDL_PenUpdateGUIDForWacom(&pen->guid, wacom_type_id, wacom_serial_id);
+        SDL_PenUpdateGUIDForWacom(&pen->guid, wacom_type_id, wacom_serial_id);
         SDL_PenModifyAddCapabilities(pen, mask);
         SDL_PenModifyEnd(pen, SDL_TRUE);
         _expect_pen_config(ptest.ids[5], guid, SDL_TRUE,

@@ -1767,10 +1767,10 @@ tablet_tool_handle_hardware_serial(void* data, struct zwp_tablet_tool_v2* tool, 
 
     if (!input->current_pen.builder_guid_complete) {
         SDL_Pen* pen = Wayland_get_current_pen(data, tool);
-	SDL_PenUpdateGUIDForGeneric(&pen->guid, serial_hi, serial_lo);
-	if (serial_hi || serial_lo) {
-	    input->current_pen.builder_guid_complete = SDL_TRUE;
-	}
+        SDL_PenUpdateGUIDForGeneric(&pen->guid, serial_hi, serial_lo);
+        if (serial_hi || serial_lo) {
+            input->current_pen.builder_guid_complete = SDL_TRUE;
+        }
     }
 #endif
 }
@@ -1790,7 +1790,7 @@ tablet_tool_handle_hardware_id_wacom(void* data, struct zwp_tablet_tool_v2* tool
 
     SDL_PenUpdateGUIDForWacom(&pen->guid, id_lo, id_hi);
     if (id_hi) { /* Have a serial number? */
-	input->current_pen.builder_guid_complete = SDL_TRUE;
+        input->current_pen.builder_guid_complete = SDL_TRUE;
     }
 
     if (SDL_PenModifyForWacomID(pen, id_lo, &axis_flags)) {
@@ -1850,7 +1850,7 @@ tablet_tool_handle_done(void* data, struct zwp_tablet_tool_v2* tool)
 
     if (!input->current_pen.builder_guid_complete) {
         /* No complete GUID?  Use tablet and tool device index */
-	SDL_PenUpdateGUIDForGeneric(&pen->guid, input->id, sdltool->penid);
+        SDL_PenUpdateGUIDForGeneric(&pen->guid, input->id, sdltool->penid);
     }
 
     SDL_PenModifyEnd(pen, SDL_TRUE);
