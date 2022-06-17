@@ -37,6 +37,9 @@
                                                      SDL_waylandevents.c  */
 #define SDL_PEN_DEBUG_UNKNOWN_WACOM   0  /* Pretend that any attached Wacom device is of an unknown make
                                             affects: SDL_PenModifyFromWacomID() */
+#define SDL_PEN_DEBUG_NOSERIAL_WACOM  0  /* Pretend that any attached Wacom device has serial number 0
+                                            affects: SDL_x11pen.c
+                                                     SDL_waylandevents.c  */
 
 
 #define SDL_PEN_TYPE_NONE         0 /**< Pen type for non-pens (use to cancel pen registration) */
@@ -109,7 +112,7 @@ extern SDL_Pen * SDL_GetPen(Uint32 penid_id);
  * - SDL_PenModifyStart()
  * - update pen object, in any order:
  *     - SDL_PenModifyAddCapabilities()
- *     - pen->guid (MUST be set for new pens)
+ *     - pen->guid (MUST be set for new pens, e.g. via ::SDL_PenUpdateGUIDForGeneric and related operations)
  *     - pen->info.num_buttons
  *     - pen->info.max_tilt
  *     - pen->type
@@ -121,6 +124,7 @@ extern SDL_Pen * SDL_GetPen(Uint32 penid_id);
  *   - num_buttons (SDL_PEN_INFO_UNKNOWN)
  *   - max_tilt (SDL_PEN_INFO_UNKNOWN)
  *   - pen_type (SDL_PEN_TYPE_PEN)
+ *   - Zeroes all other (non-header) fields
  *
  * \param penid_id Pen ID to allocate (must not be 0 = SDL_PEN_ID_INVALID)
  * \returns SDL_Pen pointer; only valid until the call to SDL_PenModifyEnd()
@@ -144,31 +148,56 @@ extern void SDL_PenModifyAddCapabilities(SDL_Pen * pen, Uint32 capabilities);
  * pen but can identify Wacom pens and obtain their Wacom-specific device type identifiers.
  * This function partly automates device setup in those cases.
  *
- * It fills in "pen->guid", as well as all other fields that are uninitialised.
+ * This function does NOT set up the pen's GUID.  Use ::SD_PenModifyGUIDForWacom instead.
  *
  * This function does NOT call SDL_PenModifyAddCapabilities() ifself, since some backends may
  * not have access to all pen axes (e.g., Xinput2).
  *
  * \param pen The pen to initialise
  * \param wacom_devicetype_id The Wacom-specific device type identifier
- * \param wacom_serial_id The Wacom-specific serial number (written to "pen->guid" but otherwise ignored)
  * \param[out] axis_flags The set of physically supported axes for this pen, suitable for passing to
  *    SDL_PenModifyAddCapabilities()
  *
  * \returns SDL_TRUE if the device ID could be identified, otherwise SDL_FALSE
  */
-extern int SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 wacom_serial_id, Uint32 * axis_flags);
+extern int SDL_PenModifyForWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 * axis_flags);
 
 /**
- * Retrieves the GUID for a Wacom pen device.
+ * Updates a GUID for a generic pen device.
  *
- * This GUID is identical to the one written by ::SDL_PenModifyFromWacomID .
+ * Assumes that the GUID has been pre-initialised (typically to 0).
+ * Idempotent, and commutative with ::SDL_PenUpdateGUIDForWacom and ::SDL_PenUpdateGUIDForType
  *
+ * \param[out] guid The GUID to update
+ * \param upper Upper half of the device ID (assume lower entropy than "lower"; pass 0 if not available)
+ * \param lower Lower half of the device ID (assume higher entropy than "upper")
+ */
+extern void SDL_PenUpdateGUIDForGeneric(SDL_GUID *guid, Uint32 upper, Uint32 lower);
+
+/**
+ * Updates a GUID based on a pen type
+ *
+ * Assumes that the GUID has been pre-initialised (typically to 0).
+ * Idempotent, and commutative with ::SDL_PenUpdateGUIDForWacom and ::SDL_PenUpdateGUIDForGeneric
+ *
+ * \param[out] guid The GUID to update
+ * \param pentype The pen type to insert
+ */
+extern void SDL_PenUpdateGUIDForType(SDL_GUID *guid, SDL_PenSubtype pentype);
+
+/**
+ * Updates a GUID for a Wacom pen device.
+ *
+ * Assumes that the GUID has been pre-initialised (typically to 0).
+ * Idempotent, and commutative with ::SDL_PenUpdateGUIDForType and ::SDL_PenUpdateGUIDForGeneric
+ *
+ * This update is identical to the one written by ::SDL_PenModifyFromWacomID .
+ *
+ * \param[out] guid The GUID to update
  * \param wacom_devicetype_id The Wacom-specific device type identifier
  * \param wacom_serial_id The Wacom-specific serial number
- * \returns The ::SDL_GUID for the specified serial IDs
  */
-extern SDL_GUID SDL_PenWacomGUID(Uint32 wacom_devicetype_id, Uint32 wacom_serial_id);
+extern void SDL_PenUpdateGUIDForWacom(SDL_GUID *guid, Uint32 wacom_devicetype_id, Uint32 wacom_serial_id);
 
 /**
  * (Only for backend driver) Finish updating a pen.

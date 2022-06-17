@@ -55,7 +55,7 @@ static struct {
 
 static SDL_PenID pen_invalid = { SDL_PENID_INVALID };
 
-static SDL_GUID pen_guid_error = { { 0 } };
+static SDL_GUID pen_guid_zero = { { 0 } };
 
 #define PEN_LOAD(penvar, penid, err_return)              \
     SDL_Pen *penvar;                                     \
@@ -192,7 +192,7 @@ SDL_PenAttached(SDL_PenID penid)
 SDL_GUID
 SDL_PenGUIDForPenID(SDL_PenID penid)
 {
-    PEN_LOAD(pen, penid, pen_guid_error);
+    PEN_LOAD(pen, penid, pen_guid_zero);
     return pen->guid;
 }
 
@@ -350,7 +350,7 @@ SDL_PenModifyEnd(SDL_Pen * pen, SDL_bool attach)
         }
 
         /* sanity-check GUID */
-        if (0 == SDL_GUIDCompare(pen->guid, pen_guid_error)) {
+        if (0 == SDL_GUIDCompare(pen->guid, pen_guid_zero)) {
             SDL_Log("Error: pen %u: has GUID 0", pen->header.id);
         }
 
@@ -812,26 +812,42 @@ pen_wacom_identify_tool(Uint32 requested_wacom_id, int *num_buttons, int *tool_t
     return NULL;
 }
 
-SDL_GUID
-SDL_PenWacomGUID(Uint32 wacom_devicetype_id, Uint32 wacom_serial_id)
+void
+SDL_PenUpdateGUIDForGeneric(SDL_GUID *guid, Uint32 upper, Uint32 lower)
 {
-    SDL_GUID guid = { { 0 } };
     int i;
 
     for (i = 0; i < 4; ++i) {
-        guid.data[0 + i] = (wacom_serial_id >> (i * 8)) & 0xff;
+        guid->data[8 + i] = (lower >> (i * 8)) & 0xff;
     }
 
     for (i = 0; i < 4; ++i) {
-        guid.data[4 + i] = (wacom_devicetype_id >> (i * 8)) & 0xff;
+        guid->data[12 + i] = (upper >> (i * 8)) & 0xff;
+    }
+}
+
+void
+SDL_PenUpdateGUIDForType(SDL_GUID *guid, SDL_PenSubtype pentype)
+{
+    guid->data[7] = pentype;
+}
+
+void
+SDL_PenUpdateGUIDForWacom(SDL_GUID *guid, Uint32 wacom_devicetype_id, Uint32 wacom_serial_id)
+{
+    int i;
+
+    for (i = 0; i < 4; ++i) {
+        guid->data[0 + i] = (wacom_serial_id >> (i * 8)) & 0xff;
     }
 
-    SDL_memcpy(&guid.data[8], "WACM", 4);
-    return guid;
+    for (i = 0; i < 3; ++i) { /* 24 bit values */
+        guid->data[4 + i] = (wacom_devicetype_id >> (i * 8)) & 0xff;
+    }
 }
 
 int
-SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 wacom_serial_id, Uint32 * axis_flags)
+SDL_PenModifyForWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id,Uint32 * axis_flags)
 {
     const char *name = NULL;
     int num_buttons;
@@ -861,9 +877,6 @@ SDL_PenModifyFromWacomID(SDL_Pen *pen, Uint32 wacom_devicetype_id, Uint32 wacom_
     if (name == NULL) {
         name = pen_wacom_identify_tool(wacom_devicetype_id, &num_buttons, &tool_type, &axes);
     }
-
-    /* Always set GUID (highest-entropy data first) */
-    pen->guid = SDL_PenWacomGUID(wacom_devicetype_id, wacom_serial_id);
 
     if (!name) {
         return SDL_FALSE;

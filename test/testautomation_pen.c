@@ -19,8 +19,10 @@
 #define SDL_GetPen SDL_SUT_GetPen
 #define SDL_PenModifyBegin SDL_SUT_PenModifyBegin
 #define SDL_PenModifyAddCapabilities SDL_SUT_PenModifyAddCapabilities
-#define SDL_PenModifyFromWacomID SDL_SUT_PenModifyFromWacomID
-#define SDL_PenWacomGUID SDL_SUT_PenWacomGUID
+#define SDL_PenModifyForWacomID SDL_SUT_PenModifyForWacomID
+#define SDL_PenUpdateGUIDForWacom SDL_SUT_PenUpdateGUIDForWacom
+#define SDL_PenUpdateGUIDForType SDL_SUT_PenUpdateGUIDForType
+#define SDL_PenUpdateGUIDForGeneric SDL_SUT_PenUpdateGUIDForGeneric
 #define SDL_PenModifyEnd SDL_SUT_PenModifyEnd
 #define SDL_PenGCMark SDL_SUT_PenGCMark
 #define SDL_PenGCSweep SDL_SUT_PenGCSweep
@@ -1356,7 +1358,7 @@ pen_initAndInfo(void *arg)
         SDL_GUID guid = {
             { 0, 0, 0, 0,
               0, 0, 0, 0,
-              'W', 'A', 'C', 'M',
+              0, 0, 0, 0,
               0, 0, 0, 0 } };
         guid.data[0] = (wacom_serial_id >>  0) & 0xff;
         guid.data[1] = (wacom_serial_id >>  8) & 0xff;
@@ -1368,7 +1370,8 @@ pen_initAndInfo(void *arg)
         guid.data[7] = (wacom_type_id >> 24) & 0xff;
 
         pen = SDL_PenModifyBegin(ptest.ids[5]);
-        SDL_PenModifyFromWacomID(pen, wacom_type_id, wacom_serial_id, &mask);
+        SDL_PenModifyForWacomID(pen, wacom_type_id, &mask);
+	SDL_PenUpdateGUIDForWacom(&pen->guid, wacom_type_id, wacom_serial_id);
         SDL_PenModifyAddCapabilities(pen, mask);
         SDL_PenModifyEnd(pen, SDL_TRUE);
         _expect_pen_config(ptest.ids[5], guid, SDL_TRUE,

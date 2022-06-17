@@ -44,6 +44,7 @@ struct SDL_WaylandTabletInput {
     struct SDL_WaylandTabletObjectListNode* tools;
     struct SDL_WaylandTabletObjectListNode* pads;
 
+    Uint32 id;
     Uint32 num_pens; /* next pen ID is num_pens+1 */
     struct SDL_WaylandCurrentPen {
         SDL_Pen *builder; /* pen that is being defined or receiving updates, if any */

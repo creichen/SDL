@@ -31,7 +31,7 @@
 #define PEN_ERASER_ID_MAXLEN 256      /* Max # characters of device name to scan */
 #define PEN_ERASER_NAME_TAG "eraser"  /* String constant to identify erasers */
 
-#define DEBUG_PEN (0 | SDL_PEN_DEBUG_NOID | SDL_PEN_DEBUG|NONWACOM | SDL_PEN_DEBUG_UNKNOWN_WACOM)
+#define DEBUG_PEN (0 | SDL_PEN_DEBUG_NOID | SDL_PEN_DEBUG|NONWACOM | SDL_PEN_DEBUG_UNKNOWN_WACOM | SDL_DEBUG_NOID)
 
 
 #define SDL_PEN_AXIS_VALUATOR_MISSING   -1
@@ -187,22 +187,17 @@ xinput2_pen_evdevid(_THIS, int deviceid)
 
 
 /* Gets reasonably-unique GUID for the device */
-static SDL_GUID
-xinput2_pen_get_generic_guid(_THIS, pen_identity pident, int deviceid)
+static void
+xinput2_pen_update_generic_guid(_THIS, pen_identity *pident, int deviceid)
 {
-    SDL_GUID guid;
     Uint32 evdevid = xinput2_pen_evdevid(_this, deviceid); /* also initialises pen_atoms  */
 
-    SDL_memset(guid.data, 0, sizeof(guid));
-    SDL_memcpy(guid.data, &evdevid, 4);
-    guid.data[12] = pident.heuristic_type; /* distinguish pen and eraser with same evdev ID */
     if (!evdevid) {
         /* Fallback: if no evdevid is available; try to at least distinguish devices within the
            current session.  This is a poor GUID and our last resort. */
-        SDL_memcpy(&guid.data[4], &deviceid, 4);
+	evdevid = deviceid;
     }
-
-    return guid;
+    SDL_PenUpdateGUIDForGeneric(&pident->guid, 0, evdevid);
 }
 
 /* Identify Wacom devices (if SDL_TRUE is returned) and extract their device type and serial IDs */
@@ -218,6 +213,9 @@ xinput2_wacom_deviceid(_THIS, int deviceid, Uint32 *wacom_devicetype_id, Uint32 
     if ((result = xinput2_pen_get_int_property(_this, deviceid, pen_atoms.wacom_serial_ids, serial_id_buf, 3)) == 3) {
         *wacom_devicetype_id = serial_id_buf[2];
         *wacom_serial = serial_id_buf[1];
+#if SDL_PEN_DEBUG_NOSERIAL_WACOM /* Disabled for testing? */
+	*wacom_serial = 0;
+#endif
         return SDL_TRUE;
     }
 #endif
@@ -298,6 +296,7 @@ xinput2_identify_pen(_THIS, int deviceid, char *name)
     pident.serial = 0ul;
     pident.deviceid = deviceid;
     pident.heuristic_type = SDL_PEN_TYPE_PEN;
+    SDL_memset(pident.guid.data, 0, sizeof(pident.guid.data));
 
     if (xinput2_pen_is_eraser(_this, deviceid, name)) {
         pident.heuristic_type = SDL_PEN_TYPE_ERASER;
@@ -305,7 +304,7 @@ xinput2_identify_pen(_THIS, int deviceid, char *name)
 
     if (xinput2_wacom_deviceid(_this, deviceid, &pident.devicetype_id, &pident.serial)) {
         pident.vendor = SDL_PEN_VENDOR_WACOM;
-        pident.guid = SDL_PenWacomGUID(pident.devicetype_id, pident.serial);
+        SDL_PenUpdateGUIDForWacom(&pident.guid, pident.devicetype_id, pident.serial);
 
 #if DEBUG_PEN
         printf("[pen] Pen %d reports Wacom device_id %x\n",
@@ -314,8 +313,9 @@ xinput2_identify_pen(_THIS, int deviceid, char *name)
 
     } else {
         pident.vendor = SDL_PEN_VENDOR_UNKNOWN;
-        pident.guid = xinput2_pen_get_generic_guid(_this, pident, deviceid);
     }
+    xinput2_pen_update_generic_guid(_this, &pident, deviceid);
+    SDL_PenUpdateGUIDForType(&pident.guid, pident.heuristic_type);
     return pident;
 }
 
@@ -360,7 +360,7 @@ xinput2_vendor_peninfo(_THIS, const XIDeviceInfo *dev, SDL_Pen *pen, pen_identit
 {
     switch (pident.vendor) {
     case SDL_PEN_VENDOR_WACOM: {
-        if (SDL_PenModifyFromWacomID(pen, pident.devicetype_id, pident.serial, axes)) {
+        if (SDL_PenModifyForWacomID(pen, pident.devicetype_id, axes)) {
             if (*axes & SDL_PEN_AXIS_SLIDER_MASK) {
                 /* Air Brush Pen or eraser */
                 *valuator_5 = SDL_PEN_AXIS_SLIDER;
