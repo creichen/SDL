@@ -23,6 +23,7 @@
 #if SDL_VIDEO_DRIVER_WINDOWS
 
 #include "SDL_windowsvideo.h"
+#include "SDL_windowspen.h"
 #include "SDL_windowsshape.h"
 #include "SDL_system.h"
 #include "SDL_syswm.h"
@@ -32,6 +33,7 @@
 #include "SDL_main.h"
 #include "../../events/SDL_events_c.h"
 #include "../../events/SDL_touch_c.h"
+#include "../../events/SDL_pen_c.h"
 #include "../../events/scancodes_windows.h"
 #include "SDL_hints.h"
 #include "SDL_log.h"
@@ -623,6 +625,8 @@ WIN_KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 
 #endif /*!defined(__XBOXONE__) && !defined(__XBOXSERIES__)*/
 
+static int seq;
+
 LRESULT CALLBACK
 WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -721,7 +725,191 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_POINTERUPDATE:
         {
+            UINT pointerId = GET_POINTERID_WPARAM(wParam);
+            POINTER_INPUT_TYPE type;
+            POINTER_PEN_INFO penInfo;
+            UINT32 cursor;
+            SDL_PenStatusInfo statusInfo = { 0 };
+            SDL_Pen *pen;
+            WIN_PenRectData *penRectData;
+
             data->last_pointer_update = lParam;
+            if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
+                break;
+            }
+
+            if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
+                break;
+            }
+
+            pen = SDL_GetPen(cursor);
+            if (pen == NULL) {
+                /* Should never happen. */
+                break;
+            }
+
+            penRectData = &((WIN_PenDriverInfo *) pen->deviceinfo)->RectData;
+
+            statusInfo.x = penInfo.pointerInfo.ptHimetricLocation.x * penRectData->ScaleX + penRectData->OffsetX;
+            statusInfo.y = penInfo.pointerInfo.ptHimetricLocation.y * penRectData->ScaleY + penRectData->OffsetY;
+
+            // SDL_Log("X: %f, Y: %f", statusInfo.x, statusInfo.y);
+            // SDL_Log("%u %d WM_POINTERUPDATE: %4x flags: %4x", cursor, ++seq, HIWORD(wParam), penInfo.penFlags);
+
+            if (penInfo.penMask & PEN_MASK_PRESSURE)
+                statusInfo.axes[SDL_PEN_AXIS_PRESSURE] = penInfo.pressure / 1024.0f;
+
+            if (penInfo.penMask & PEN_MASK_TILT_X)
+                statusInfo.axes[SDL_PEN_AXIS_XTILT] = SDL_sinf(penInfo.tiltX * (float)(M_PI / 180.0f));
+
+            if (penInfo.penMask & PEN_MASK_TILT_Y)
+                statusInfo.axes[SDL_PEN_AXIS_YTILT] = SDL_sinf(penInfo.tiltY * (float)(M_PI / 180.0f));
+
+            if (penInfo.penMask & PEN_MASK_ROTATION) {
+                float rot = penInfo.rotation / 360.0f;
+                if (rot > 0.5f) {
+                    rot -= 1.0f;
+                }
+
+                rot *= 2.0f;
+                statusInfo.axes[SDL_PEN_AXIS_ROTATION] = rot;
+            }
+
+            SDL_SendPenMotion(cursor, SDL_FALSE, &statusInfo);
+
+            returnCode = 0;
+            break;
+        }
+
+    case WM_POINTERDOWN:
+        {
+            UINT pointerId = GET_POINTERID_WPARAM(wParam);
+            POINTER_INPUT_TYPE type;
+            POINTER_PEN_INFO penInfo;
+            UINT32 cursor;
+            SDL_Pen *pen;
+
+            data->last_pointer_update = lParam;
+            if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
+                break;
+            }
+
+            if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
+                break;
+            }
+
+            SDL_Log("%u %d WM_POINTERDOWN: %4x flags: %4x", cursor, ++seq, HIWORD(wParam), penInfo.penFlags);
+
+            pen = SDL_GetPen(cursor);
+            if (pen == NULL) {
+                /* Should never happen. */
+                break;
+            }
+
+            if (IS_POINTER_FIRSTBUTTON_WPARAM(wParam)) {
+                SDL_SendPenButton(cursor, SDL_PRESSED, 1);
+            } else if (IS_POINTER_SECONDBUTTON_WPARAM(wParam)) {
+                SDL_SendPenButton(cursor, SDL_PRESSED, 2);
+            }
+
+            returnCode = 0;
+            break;
+        }
+
+    case WM_POINTERUP:
+        {
+            UINT pointerId = GET_POINTERID_WPARAM(wParam);
+            POINTER_INPUT_TYPE type;
+            POINTER_PEN_INFO penInfo;
+            UINT32 cursor;
+            SDL_Pen *pen;
+
+            data->last_pointer_update = lParam;
+            if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
+                break;
+            }
+
+            if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
+                break;
+            }
+
+            pen = SDL_GetPen(cursor);
+            if (pen == NULL) {
+                /* Should never happen. */
+                break;
+            }
+
+            SDL_Log("%u %d WM_POINTERUP: %4x flags: %4x", cursor, ++seq, HIWORD(wParam), penInfo.penFlags);
+
+            if (pen->last.buttons & 0x1) {
+                SDL_SendPenButton(cursor, SDL_RELEASED, 1);
+            }
+
+            if (pen->last.buttons & 0x2) {
+                SDL_SendPenButton(cursor, SDL_RELEASED, 2);
+            }
+
+            returnCode = 0;
+            break;
+        }
+        
+    case WM_POINTERENTER:
+        {
+            UINT pointerId = GET_POINTERID_WPARAM(wParam);
+            UINT32 cursor;
+            POINTER_INPUT_TYPE type;
+            POINTER_PEN_INFO penInfo;
+            
+            if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
+                break;
+            }
+
+            if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
+                break;
+            }
+
+            SDL_Log("WM_POINTERENTER");
+            SDL_SendPenWindowEvent(cursor, data->window);
+            break;
+        }
+
+    case WM_POINTERLEAVE:
+        {
+            UINT pointerId = GET_POINTERID_WPARAM(wParam);
+            UINT32 cursor;
+            POINTER_INPUT_TYPE type;
+            POINTER_PEN_INFO penInfo;
+
+            if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
+                break;
+            }
+
+            if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
+                break;
+            }
+
+            SDL_Log("WM_POINTERLEAVE");
+            SDL_SendPenWindowEvent(cursor, NULL);
+            break;
+        }
+
+    case WM_POINTERCAPTURECHANGED:
+        {
+            UINT pointerId = GET_POINTERID_WPARAM(wParam);
+            UINT32 cursor;
+            POINTER_INPUT_TYPE type;
+            POINTER_PEN_INFO penInfo;
+
+            if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
+                break;
+            }
+
+            if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
+                break;
+            }
+
+            SDL_Log("WM_POINTERCAPTURECHANGED");
+            SDL_SendPenWindowEvent(cursor, NULL);
             break;
         }
 
@@ -769,6 +957,8 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_XBUTTONDOWN:
     case WM_XBUTTONDBLCLK:
         {
+            SDL_Log("%d WM*BUTTON*: %4x", ++seq, HIWORD(wParam));
+
             SDL_Mouse *mouse = SDL_GetMouse();
             if (!mouse->relative_mode || mouse->relative_mode_warp) {
                 if (GetMouseMessageSource() != SDL_MOUSE_EVENT_SOURCE_TOUCH &&
@@ -1099,7 +1289,7 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                  */
                 BOOL menu = (style & WS_CHILDWINDOW) ? FALSE : (GetMenu(hwnd) != NULL);
                 UINT dpi;
-                
+
                 dpi = 96;
                 size.top = 0;
                 size.left = 0;
@@ -1451,7 +1641,7 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_GETDPISCALEDSIZE:
         /* Windows 10 Creators Update+ */
         /* Documented as only being sent to windows that are per-monitor V2 DPI aware.
-           
+
            Experimentation shows it's only sent during interactive dragging, not in response to
            SetWindowPos. */
         if (data->videodata->GetDpiForWindow && data->videodata->AdjustWindowRectExForDpi) {
@@ -1465,7 +1655,7 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                because Windows doesn't scale the non-client area (titlebar etc.)
                linearly. So, we need to handle this message to request custom
                scaling. */
-            
+
             const int nextDPI = (int)wParam;
             const int prevDPI = (int)data->videodata->GetDpiForWindow(hwnd);
             SIZE *sizeInOut = (SIZE *)lParam;
@@ -1496,7 +1686,7 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 query_client_h_win = sizeInOut->cy - frame_h;
             }
 
-            /* Convert to new dpi if we are using scaling. 
+            /* Convert to new dpi if we are using scaling.
              * Otherwise leave as pixels.
              */
             if (data->videodata->dpi_scaling_enabled) {
@@ -1599,7 +1789,7 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 w = rect.right - rect.left;
                 h = rect.bottom - rect.top;
             }
-            
+
 #ifdef HIGHDPI_DEBUG
             SDL_Log("WM_DPICHANGED: current SDL window size: (%dx%d)\tcalling SetWindowPos: (%d, %d), (%dx%d)\n",
                 data->window->w, data->window->h,

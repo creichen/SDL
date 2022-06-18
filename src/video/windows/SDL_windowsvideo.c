@@ -34,6 +34,7 @@
 #include "SDL_windowsframebuffer.h"
 #include "SDL_windowsshape.h"
 #include "SDL_windowsvulkan.h"
+#include "SDL_windowspen.h"
 
 /* #define HIGHDPI_DEBUG */
 
@@ -454,6 +455,7 @@ WIN_VideoInit(_THIS)
 
     WIN_InitKeyboard(_this);
     WIN_InitMouse(_this);
+    WIN_InitPen(_this);
 #endif
 
     SDL_AddHintCallback(SDL_HINT_WINDOWS_ENABLE_MESSAGELOOP, UpdateWindowsEnableMessageLoop, NULL);
@@ -473,6 +475,7 @@ WIN_VideoQuit(_THIS)
     WIN_QuitModes(_this);
     WIN_QuitKeyboard(_this);
     WIN_QuitMouse(_this);
+    WIN_QuitPen(_this);
 #endif
 }
 

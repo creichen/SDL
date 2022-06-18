@@ -322,6 +322,7 @@
     <ClInclude Include="..\..\src\events\SDL_gesture_c.h" />
     <ClInclude Include="..\..\src\events\SDL_keyboard_c.h" />
     <ClInclude Include="..\..\src\events\SDL_mouse_c.h" />
+    <ClInclude Include="..\..\src\events\SDL_pen_c.h" />
     <ClInclude Include="..\..\src\events\SDL_touch_c.h" />
     <ClInclude Include="..\..\src\events\SDL_windowevents_c.h" />
     <ClInclude Include="..\..\src\haptic\SDL_haptic_c.h" />
@@ -432,6 +433,7 @@
     <ClInclude Include="..\..\src\video\windows\SDL_windowsmouse.h" />
     <ClInclude Include="..\..\src\video\windows\SDL_windowsopengl.h" />
     <ClInclude Include="..\..\src\video\windows\SDL_windowsopengles.h" />
+    <ClInclude Include="..\..\src\video\windows\SDL_windowspen.h" />
     <ClInclude Include="..\..\src\video\windows\SDL_windowsshape.h" />
     <ClInclude Include="..\..\src\video\windows\SDL_windowstaskdialog.h" />
     <ClInclude Include="..\..\src\video\windows\SDL_windowsvideo.h" />
@@ -618,6 +620,7 @@
     <ClCompile Include="..\..\src\video\windows\SDL_windowsmouse.c" />
     <ClCompile Include="..\..\src\video\windows\SDL_windowsopengl.c" />
     <ClCompile Include="..\..\src\video\windows\SDL_windowsopengles.c" />
+    <ClCompile Include="..\..\src\video\windows\SDL_windowspen.c" />
     <ClCompile Include="..\..\src\video\windows\SDL_windowsshape.c" />
     <ClCompile Include="..\..\src\video\windows\SDL_windowsvideo.c" />
     <ClCompile Include="..\..\src\video\windows\SDL_windowsvulkan.c" />
