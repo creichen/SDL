@@ -289,7 +289,7 @@ process_event(SDL_Event event)
         SDL_Log("pen motion @ %d: %s %u at %f,%f; pressure=%.3f, tilt=%.3f/%.3f, dist=%.3f [buttons=%02x]\n",
                 ev->timestamp,
                 last_was_eraser ? "eraser" : "pen",
-                (unsigned int) ev->which.id, ev->x, ev->y, last_pressure, last_xtilt, last_ytilt, last_distance,
+                (unsigned int) ev->which, ev->x, ev->y, last_pressure, last_xtilt, last_ytilt, last_distance,
                 ev->pen_state);
 #endif
         break;
@@ -311,7 +311,7 @@ process_event(SDL_Event event)
 #if VERBOSE
         SDL_Log("pen button: %s %u at %f,%f; BUTTON %d reported %s with event %s [pressure=%.3f, tilt=%.3f/%.3f, dist=%.3f]\n",
                 last_was_eraser ? "eraser" : "pen",
-                (unsigned int) ev->which.id, ev->x, ev->y,
+                (unsigned int) ev->which, ev->x, ev->y,
                 ev->button,
                 (ev->state == SDL_PRESSED) ? "PRESSED"
                 : ((ev->state == SDL_RELEASED) ? "RELEASED" : "--invalid--"),
@@ -320,6 +320,29 @@ process_event(SDL_Event event)
 #endif
         break;
     }
+
+    case SDL_WINDOWEVENT:
+        switch (event.window.event) {
+        case SDL_WINDOWEVENT_PEN_ENTER:
+            SDL_Log("Pen %d entered window %d", event.window.data1, event.window.windowID);
+            break;
+
+        case SDL_WINDOWEVENT_PEN_LEAVE:
+            SDL_Log("Pen %d left window %d", event.window.data1, event.window.windowID);
+            break;
+
+#if VERBOSE
+        case SDL_WINDOWEVENT_ENTER:
+            SDL_Log("Mouse entered window %d", event.window.windowID);
+            break;
+
+        case SDL_WINDOWEVENT_LEAVE:
+            SDL_Log("Mouse left window %d", event.window.windowID);
+            break;
+#endif
+        }
+        break;
+
     default:
         break;
     }

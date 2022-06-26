@@ -118,7 +118,6 @@ SDL_GetPen(const Uint32 penid_id)
     }
 
     if (pen_handler.sorted) {
-        //SDL_Pen *pen = pen_bsearch(penid_id, pen_handler.pens, pen_handler.pens_known);
         struct SDL_Pen_header key = { 0, 0 };
         SDL_Pen *pen;
 
@@ -300,6 +299,22 @@ SDL_PenModifyAddCapabilities(SDL_Pen * pen, Uint32 capabilities)
     pen->header.flags |= (capabilities & PEN_FLAGS_CAPABILITIES);
 }
 
+static void
+pen_hotplug_attach(SDL_Pen *pen)
+{
+    if (!pen->header.window) {
+        /* Attach to default window */
+        const SDL_Mouse *mouse = SDL_GetMouse();
+        SDL_SendPenWindowEvent(pen->header.id, mouse->focus);
+    }
+}
+
+static void
+pen_hotplug_detach(SDL_Pen *pen)
+{
+    SDL_SendPenWindowEvent(pen->header.id, NULL);
+}
+
 void
 SDL_PenModifyEnd(SDL_Pen * pen, SDL_bool attach)
 {
@@ -333,10 +348,12 @@ SDL_PenModifyEnd(SDL_Pen * pen, SDL_bool attach)
             if (!is_new) {
                 pen_handler.pens_attached -= 1;
             }
+            pen_hotplug_detach(pen);
         }
     } else if (!was_attached || is_new) {
         broke_sort_order = SDL_TRUE;
         pen_handler.pens_attached += 1;
+        pen_hotplug_attach(pen);
     }
 
     if (is_new) {
@@ -397,6 +414,7 @@ SDL_PenGCSweep(void *context, void (*free_deviceinfo)(Uint32, void*, void*))
 
         if (pen->header.flags & SDL_PEN_FLAG_STALE) {
             pen->header.flags |= SDL_PEN_FLAG_DETACHED;
+            pen_hotplug_detach(pen);
             if (pen->deviceinfo) {
                 free_deviceinfo(pen->header.id, pen->deviceinfo, context);
                 pen->deviceinfo = NULL;
@@ -425,7 +443,7 @@ pen_relative_coordinates(SDL_Window *window, SDL_bool window_relative, float *x,
 }
 
 int
-SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
+SDL_SendPenMotion(SDL_PenID penid,
                   SDL_bool window_relative,
                   const SDL_PenStatusInfo *status)
 {
@@ -442,12 +460,17 @@ SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
     /* Suppress mouse updates for axis changes or sub-pixel movement: */
     SDL_bool send_mouse_update;
     SDL_bool axes_changed = SDL_FALSE;
-
-    pen_relative_coordinates(window, window_relative, &x, &y);
+    SDL_Window *window;
 
     if (!pen) {
         return SDL_FALSE;
     }
+    window = pen->header.window;
+    if (!window) {
+        return SDL_FALSE;
+    }
+    pen_relative_coordinates(window, window_relative, &x, &y);
+
     /* Check if the event actually modifies any cached axis or location, update as neeed */
     if (x != last_x || y != last_y) {
         axes_changed = SDL_TRUE;
@@ -468,13 +491,13 @@ SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
 
     send_mouse_update = ((int) x) != ((int)(last_x)) || ((int) y) != ((int)(last_y));
 
-    if (!(SDL_IsMousePositionInWindow(mouse->focus, mouse->mouseID, (int) x, (int) y))) {
+    if (!(SDL_IsMousePositionInWindow(window, mouse->mouseID, (int) x, (int) y))) {
         return SDL_FALSE;
     }
 
     if (SDL_GetEventState(SDL_PENMOTION) == SDL_ENABLE) {
         event.pmotion.type = SDL_PENMOTION;
-        event.pmotion.windowID = mouse->focus ? mouse->focus->id : 0;
+        event.pmotion.windowID = window ? window->id : 0;
         event.pmotion.which = penid;
         event.pmotion.pen_state = (Uint16) last_buttons | PEN_GET_ERASER_MASK(pen);
         event.pmotion.x = x;
@@ -517,7 +540,7 @@ SDL_SendPenMotion(SDL_Window *window, SDL_PenID penid,
 }
 
 int
-SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
+SDL_SendPenButton(SDL_PenID penid,
                   Uint8 state, Uint8 button)
 {
     SDL_Mouse *mouse = SDL_GetMouse();
@@ -526,13 +549,15 @@ SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
     SDL_bool posted = SDL_FALSE;
     SDL_PenStatusInfo *last = &pen->last;
     int mouse_button = button;
+    SDL_Window *window;
 
     if (!pen) {
         return SDL_FALSE;
     }
+    window = pen->header.window;
 
     if ((state == SDL_PRESSED)
-        && !(SDL_IsMousePositionInWindow(mouse->focus, mouse->mouseID, (int) last->x, (int) last->y))) {
+        && !(window && SDL_IsMousePositionInWindow(window, mouse->mouseID, (int) last->x, (int) last->y))) {
         return SDL_FALSE;
     }
 
@@ -545,7 +570,7 @@ SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
     }
 
     if (SDL_GetEventState(event.pbutton.type) == SDL_ENABLE) {
-        event.pbutton.windowID = mouse->focus ? mouse->focus->id : 0;
+        event.pbutton.windowID = window ? window->id : 0;
         event.pbutton.which = penid;
         event.pbutton.button = button;
         event.pbutton.state = state == SDL_PRESSED ? SDL_PRESSED : SDL_RELEASED;
@@ -600,7 +625,7 @@ SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
         /* Report mouse event without updating mouse state */
         event.button.type = state == SDL_PRESSED ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
         if (SDL_GetEventState(event.button.type) == SDL_ENABLE) {
-            event.button.windowID = event.pbutton.windowID;
+            event.button.windowID = window ? window->id : 0;
             event.button.which = SDL_PEN_MOUSEID;
 
             event.button.state = state;
@@ -616,6 +641,54 @@ SDL_SendPenButton(SDL_Window *window, SDL_PenID penid,
     default:
         break;
     }
+    return posted;
+}
+
+int
+SDL_SendPenWindowEvent(SDL_PenID penID, SDL_Window * window)
+{
+    SDL_WindowEventID event_id = window ? SDL_WINDOWEVENT_PEN_ENTER : SDL_WINDOWEVENT_PEN_LEAVE;
+    SDL_Event event = { 0 };
+    SDL_Pen *pen = SDL_GetPen(penID);
+    SDL_bool posted;
+
+    if (!pen) {
+        return SDL_FALSE;
+    }
+
+    if (pen->header.window == window) { /* (TRIVIAL-EVENT) Nothing new to report */
+        return SDL_FALSE;
+    }
+
+    event.window.type = SDL_WINDOWEVENT;
+    /* If window == NULL and not (TRIVIAL-EVENT), then pen->header.window != NULL */
+    event.window.windowID = window ? window->id : pen->header.window->id;
+    event.window.event = event_id;
+    event.window.data1 = penID;
+    posted = (SDL_PushEvent(&event) > 0);
+
+    /* Update after assembling event */
+    pen->header.window = window;
+
+    switch (pen_mouse_emulation_mode) {
+    case PEN_MOUSE_EMULATE:
+        SDL_SetMouseFocus(event_id == SDL_WINDOWEVENT_PEN_ENTER ? window : NULL);
+        break;
+
+    case PEN_MOUSE_STATELESS:
+        /* Send event without going through mouse API */
+        if (event_id == SDL_WINDOWEVENT_PEN_ENTER) {
+            event.window.event = SDL_WINDOWEVENT_ENTER;
+        } else {
+            event.window.event = SDL_WINDOWEVENT_LEAVE;
+        }
+        posted = posted || (SDL_PushEvent(&event) > 0);
+        break;
+
+    default:
+        break;
+    }
+
     return posted;
 }
 

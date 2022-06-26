@@ -767,6 +767,23 @@ X11_HandleButtonPress(_THIS, SDL_WindowData *windowdata, int button, const int x
     X11_UpdateUserTime(windowdata, time);
 }
 
+SDL_WindowData *
+X11_FindWindow(_THIS, Window window)
+{
+    const SDL_VideoData *videodata = (SDL_VideoData *) _this->driverdata;
+    int i;
+
+    if (videodata && videodata->windowlist) {
+        for (i = 0; i < videodata->numwindows; ++i) {
+            if ((videodata->windowlist[i] != NULL) &&
+                (videodata->windowlist[i]->xwindow == window)) {
+                return videodata->windowlist[i];
+            }
+        }
+    }
+    return NULL;
+}
+
 void
 X11_HandleButtonRelease(_THIS, SDL_WindowData *windowdata, int button) {
     SDL_Window *window = windowdata->window;
@@ -863,16 +880,8 @@ X11_DispatchEvent(_THIS, XEvent *xevent)
         return;
     }
 
-    data = NULL;
-    if (videodata && videodata->windowlist) {
-        for (i = 0; i < videodata->numwindows; ++i) {
-            if ((videodata->windowlist[i] != NULL) &&
-                (videodata->windowlist[i]->xwindow == xevent->xany.window)) {
-                data = videodata->windowlist[i];
-                break;
-            }
-        }
-    }
+    data = X11_FindWindow(_this, xevent->xany.window);
+
     if (!data) {
         /* The window for KeymapNotify, etc events is 0 */
         if (xevent->type == KeymapNotify) {

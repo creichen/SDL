@@ -1896,6 +1896,7 @@ tablet_tool_handle_proximity_in(void* data, struct zwp_tablet_tool_v2* tool, uin
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
     SDL_WindowData* window;
+    SDL_PenID penid = Wayland_get_penid(data, tool);
 
     if (!surface) {
         return;
@@ -1911,7 +1912,11 @@ tablet_tool_handle_proximity_in(void* data, struct zwp_tablet_tool_v2* tool, uin
         input->tool_focus = window;
         input->tool_prox_serial = serial;
 
-        SDL_SetMouseFocus(window->sdlwindow);
+        if (penid) {
+            SDL_SendPenWindowEvent(penid, window->sdlwindow);
+        } else {
+            SDL_SetMouseFocus(window->sdlwindow);
+        }
         SDL_SetCursor(NULL);
     }
 }
@@ -1921,8 +1926,13 @@ tablet_tool_handle_proximity_out(void* data, struct zwp_tablet_tool_v2* tool)
 {
     struct SDL_WaylandTool *sdltool = data;
     struct SDL_WaylandTabletInput *input = sdltool->tablet;
+    SDL_PenID penid = Wayland_get_penid(data, tool);
     if (input->tool_focus) {
-        SDL_SetMouseFocus(NULL);
+        if (penid) {
+            SDL_SendPenWindowEvent(penid, NULL);
+        } else {
+            SDL_SetMouseFocus(NULL);
+        }
         input->tool_focus = NULL;
     }
 }
@@ -2068,13 +2078,13 @@ tablet_tool_handle_frame(void* data, struct zwp_tablet_tool_v2* tool, uint32_t t
         return;
     }
 
-    SDL_SendPenMotion(window->sdlwindow, penid, SDL_TRUE, status);
+    SDL_SendPenMotion(penid, SDL_TRUE, status);
 
     /* All newly released buttons */
     button_mask = input->current_pen.buttons_released;
     for (button = 1; button_mask; ++button, button_mask >>= 1) {
         if (button_mask & 1) {
-            SDL_SendPenButton(window->sdlwindow, penid, SDL_RELEASED, button);
+            SDL_SendPenButton(penid, SDL_RELEASED, button);
         }
     }
 
@@ -2082,7 +2092,7 @@ tablet_tool_handle_frame(void* data, struct zwp_tablet_tool_v2* tool, uint32_t t
     button_mask = input->current_pen.buttons_pressed;
     for (button = 1; button_mask; ++button, button_mask >>= 1) {
         if (button_mask & 1) {
-            SDL_SendPenButton(window->sdlwindow, penid, SDL_PRESSED, button);
+            SDL_SendPenButton(penid, SDL_PRESSED, button);
         }
     }
     /* Reset masks for next tool frame */

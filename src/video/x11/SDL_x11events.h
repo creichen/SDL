@@ -32,6 +32,7 @@ extern void X11_SuspendScreenSaver(_THIS);
 extern void X11_ReconcileKeyboardState(_THIS);
 extern void X11_HandleButtonPress(_THIS, SDL_WindowData *wdata, int button, const int x, const int y, const unsigned long time);
 extern void X11_HandleButtonRelease(_THIS, SDL_WindowData *wdata, int button);
+extern SDL_WindowData *X11_FindWindow(_THIS, Window window);
 
 
 #endif /* SDL_x11events_h_ */

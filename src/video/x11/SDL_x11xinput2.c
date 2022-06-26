@@ -189,6 +189,18 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
             X11_InitPen(_this);
             break;
 
+        case XI_Enter:
+        case XI_Leave: {
+            const XIEnterEvent *enterev = (const XIEnterEvent*)cookie->data;
+            const SDL_WindowData *windowdata = X11_FindWindow(_this, enterev->event);
+            const SDL_Pen *pen = SDL_GetPen(X11_PenIDFromDeviceID(enterev->sourceid));
+            SDL_Window *window = (windowdata && (cookie->evtype == XI_Enter)) ? windowdata->window : NULL;
+            if (pen) {
+                SDL_SendPenWindowEvent(pen->header.id, window);
+            }
+            }
+            break;
+
         case XI_RawMotion: {
             const XIRawEvent *rawev = (const XIRawEvent*)cookie->data;
             const SDL_bool is_pen = X11_PenIDFromDeviceID(rawev->sourceid) != SDL_PENID_INVALID;
@@ -244,11 +256,9 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
             const SDL_bool pressed = (cookie->evtype == XI_ButtonPress) ? SDL_TRUE : SDL_FALSE;
 
             if (pen) {
-                const SDL_Mouse *mouse = SDL_GetMouse();
-
                 /* Only report button event; if there was also pen movement / pressure changes, we expect
                    an XI_Motion event first anyway */
-                SDL_SendPenButton(mouse->focus, pen->header.id,
+                SDL_SendPenButton(pen->header.id,
                                   pressed ? SDL_PRESSED : SDL_RELEASED,
                                   button);
                 return 1;
@@ -287,7 +297,6 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
 
             if (pen) {
                 SDL_PenStatusInfo pen_status;
-                const SDL_Mouse *mouse = SDL_GetMouse();
 
                 pen_status.x = xev->event_x;
                 pen_status.y = xev->event_y;
@@ -296,7 +305,7 @@ X11_HandleXinput2Event(_THIS, XGenericEventCookie *cookie)
                                          xev->valuators.values, xev->valuators.mask, xev->valuators.mask_len,
                                          &pen_status.axes[0]);
 
-                SDL_SendPenMotion(mouse->focus, pen->header.id,
+                SDL_SendPenMotion(pen->header.id,
                                   SDL_TRUE,
                                   &pen_status);
                 return 1;
@@ -443,6 +452,8 @@ X11_Xinput2SelectMouse(_THIS, SDL_Window *window)
     XISetMask(mask, XI_ButtonPress);
     XISetMask(mask, XI_ButtonRelease);
     XISetMask(mask, XI_Motion);
+    XISetMask(mask, XI_Enter);
+    XISetMask(mask, XI_Leave);
     /* Hotplugging: */
     XISetMask(mask, XI_DeviceChanged);
     XISetMask(mask, XI_HierarchyChanged);

@@ -69,6 +69,7 @@ typedef struct SDL_Pen {
     struct SDL_Pen_header {
         SDL_PenID id;            /* id determines sort order unless SDL_PEN_FLAG_DETACHED is set */
         Uint32 flags;            /* SDL_PEN_FLAG_* | SDL_PEN_INK_MASK | SDL_PEN_ERASER_MASK | SDL_PEN_AXIS_* */
+        SDL_Window *window;      /* Current SDL window for this pen, or NULL */
     } header;
 
     SDL_PenStatusInfo last;      /* Last reported status, normally read-only for backend */
@@ -259,7 +260,7 @@ extern void SDL_PenGCSweep(void *context, void (*free_deviceinfo)(Uint32 penid_i
  *
  * \returns SDL_TRUE if at least one event was sent
  */
-extern int SDL_SendPenMotion(SDL_Window * window, SDL_PenID penid, SDL_bool window_relative, const SDL_PenStatusInfo * status);
+extern int SDL_SendPenMotion(SDL_PenID penid, SDL_bool window_relative, const SDL_PenStatusInfo * status);
 
 /**
  * (Only for backend driver) Send a pen button event.
@@ -269,7 +270,18 @@ extern int SDL_SendPenMotion(SDL_Window * window, SDL_PenID penid, SDL_bool wind
  * \param state SDL_PRESSED or SDL_RELEASED
  * \param button Button number: 1 (pen tip), 2 (first physical button) etc.
  */
-extern int SDL_SendPenButton(SDL_Window * window, SDL_PenID penID, Uint8 state, Uint8 button);
+extern int SDL_SendPenButton(SDL_PenID penID, Uint8 state, Uint8 button);
+
+/**
+ * (Only for backend driver) Send a pen window event.
+ *
+ * Tracks when a pen has entered/left a window.
+ * Don't call this when reporting new pens or removing known pens; those cases are handled automatically.
+ *
+ * \param penid Pen
+ * \param window Window to enter, or NULL to exit
+ */
+extern int SDL_SendPenWindowEvent(SDL_PenID penID, SDL_Window * window);
 
 /**
  * Initialises the pen subsystem

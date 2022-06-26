@@ -28,6 +28,7 @@
 #define SDL_PenGCSweep SDL_SUT_PenGCSweep
 #define SDL_SendPenMotion SDL_SUT_SendPenMotion
 #define SDL_SendPenButton SDL_SUT_SendPenButton
+#define SDL_SendPenWindowEvent SDL_SUT_SendPenWindowEvent
 #define SDL_PenInit SDL_SUT_PenInit
 
 /* ================= Mock API ================== */
@@ -478,13 +479,13 @@ _pen_simulate(simulated_pen_action *steps, int *step_counter, SDL_Pen *simulated
 
         case SIMPEN_ACTION_MOTION_EVENT:
             done = SDL_TRUE;
-            SDLTest_AssertCheck(SDL_SendPenMotion(NULL, simpen->header.id, SDL_TRUE,
+            SDLTest_AssertCheck(SDL_SendPenMotion(simpen->header.id, SDL_TRUE,
                                                   &simpen->last),
                                 "SIMPEN_ACTION_MOTION_EVENT [pen %d]", step.pen_index);
             break;
 
         case SIMPEN_ACTION_MOTION_EVENT_S:
-            SDLTest_AssertCheck(!SDL_SendPenMotion(NULL, simpen->header.id, SDL_TRUE,
+            SDLTest_AssertCheck(!SDL_SendPenMotion(simpen->header.id, SDL_TRUE,
                                                    &simpen->last),
                                 "SIMPEN_ACTION_MOTION_EVENT_SUPPRESSED [pen %d]", step.pen_index);
             break;
@@ -492,7 +493,7 @@ _pen_simulate(simulated_pen_action *steps, int *step_counter, SDL_Pen *simulated
         case SIMPEN_ACTION_PRESS:
             mask = (1 << (step.index - 1));
             simpen->last.buttons |= mask;
-            SDLTest_AssertCheck(SDL_SendPenButton(NULL, simpen->header.id, SDL_PRESSED, step.index),
+            SDLTest_AssertCheck(SDL_SendPenButton(simpen->header.id, SDL_PRESSED, step.index),
                                 "SIMPEN_ACTION_PRESS [pen %d]: button %d (mask %x)", step.pen_index, step.index, mask);
             done = SDL_TRUE;
             break;
@@ -500,7 +501,7 @@ _pen_simulate(simulated_pen_action *steps, int *step_counter, SDL_Pen *simulated
         case SIMPEN_ACTION_RELEASE:
             mask = ~(1 << (step.index - 1));
             simpen->last.buttons &= mask;
-            SDLTest_AssertCheck(SDL_SendPenButton(NULL, simpen->header.id, SDL_RELEASED, step.index),
+            SDLTest_AssertCheck(SDL_SendPenButton(simpen->header.id, SDL_RELEASED, step.index),
                                 "SIMPEN_ACTION_RELEASE [pen %d]: button %d (mask %x)", step.pen_index, step.index, mask);
             done = SDL_TRUE;
             break;
@@ -912,11 +913,11 @@ pen_buttonReporting(void *arg)
     update.x = expected_x[0];
     update.y = expected_y[0];
     SDL_memcpy(update.axes, axes, sizeof(float) * SDL_PEN_NUM_AXES);
-    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+    SDL_SendPenMotion(ptest.ids[0], SDL_TRUE, &update);
     update.x = expected_x[1];
     update.y = expected_y[1];
     SDL_memcpy(update.axes, axes + 1, sizeof(float) * SDL_PEN_NUM_AXES);
-    SDL_SendPenMotion(NULL, ptest.ids[1], SDL_TRUE, &update);
+    SDL_SendPenMotion(ptest.ids[1], SDL_TRUE, &update);
 
     while (SDL_PollEvent(&event)); /* Flush event queue */
     SDLTest_AssertPass("Pen and eraser set up for button testing");
@@ -933,7 +934,7 @@ pen_buttonReporting(void *arg)
             SDL_bool found_event = SDL_FALSE;
             pen_state |= (1 << (button_nr - 1));
 
-            SDL_SendPenButton(NULL, ptest.ids[pen_nr], SDL_PRESSED, button_nr);
+            SDL_SendPenButton(ptest.ids[pen_nr], SDL_PRESSED, button_nr);
             while (SDL_PollEvent(&event)) {
                 if (event.type == SDL_PENBUTTONDOWN) {
                     SDLTest_AssertCheck(event.pbutton.which == ptest.ids[pen_nr],
@@ -981,7 +982,7 @@ pen_buttonReporting(void *arg)
             SDL_bool found_event = SDL_FALSE;
             pen_state &= ~(1 << (button_nr - 1));
 
-            SDL_SendPenButton(NULL, ptest.ids[pen_nr], SDL_RELEASED, button_nr);
+            SDL_SendPenButton(ptest.ids[pen_nr], SDL_RELEASED, button_nr);
             while (SDL_PollEvent(&event)) {
                 if (event.type == SDL_PENBUTTONUP) {
                     SDLTest_AssertCheck(event.pbutton.which == ptest.ids[pen_nr],
@@ -1435,13 +1436,13 @@ pen_mouseEmulation(void *arg)
     /* Initialise pen location */
     SDL_memset(update.axes, 0, sizeof(update.axes));
     SET_POS(update, 100.0f, 100.0f);
-    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+    SDL_SendPenMotion(ptest.ids[0], SDL_TRUE, &update);
     while (SDL_PollEvent(&event)); /* Flush event queue */
 
     /* Test motion forwarding */
     _mouseemu_last_event = 0;
     SET_POS(update, 121.25f, 110.75f);
-    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+    SDL_SendPenMotion(ptest.ids[0], SDL_TRUE, &update);
     SDLTest_AssertCheck(SDL_MOUSEMOTION == _mouseemu_last_event,
                         "Mouse motion event: %d", _mouseemu_last_event);
     SDLTest_AssertCheck(121 == _mouseemu_last_x && 110 == _mouseemu_last_y,
@@ -1456,18 +1457,18 @@ pen_mouseEmulation(void *arg)
     _mouseemu_last_event = 0;
 
     SET_POS(update, 121.00f, 110.00f);
-    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+    SDL_SendPenMotion(ptest.ids[0], SDL_TRUE, &update);
 
     SET_POS(update, 121.95f, 110.95f);
-    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+    SDL_SendPenMotion(ptest.ids[0], SDL_TRUE, &update);
 
     update.axes[0] = 1.0f;
-    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+    SDL_SendPenMotion(ptest.ids[0], SDL_TRUE, &update);
 
     SET_POS(update, 121.12f, 110.70f);
     update.axes[0] = 0.0f;
     update.axes[1] = 0.75f;
-    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+    SDL_SendPenMotion(ptest.ids[0], SDL_TRUE, &update);
 
     SDLTest_AssertCheck(0 == _mouseemu_last_event,
                         "Redundant mouse motion suppressed: %d", _mouseemu_last_event);
@@ -1475,14 +1476,14 @@ pen_mouseEmulation(void *arg)
 
     /* Test button press reporting */
     for (i = 1; i <= 3; ++i) {
-        SDL_SendPenButton(NULL, ptest.ids[0], SDL_PRESSED, i);
+        SDL_SendPenButton(ptest.ids[0], SDL_PRESSED, i);
         _penmouse_expect_button(SDL_PRESSED, i);
     }
     SDLTest_AssertPass("Button press mouse emulation");
 
     /* Test button release reporting */
     for (i = 1; i <= 3; ++i) {
-        SDL_SendPenButton(NULL, ptest.ids[0], SDL_RELEASED, i);
+        SDL_SendPenButton(ptest.ids[0], SDL_RELEASED, i);
         _penmouse_expect_button(SDL_RELEASED, i);
     }
     SDLTest_AssertPass("Button release mouse emulation");
@@ -1521,13 +1522,13 @@ pen_mouseEmulationDelayed(void *arg)
     /* Initialise pen location */
     SDL_memset(update.axes, 0, sizeof(update.axes));
     SET_POS(update, 100.0f, 100.0f);
-    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+    SDL_SendPenMotion(ptest.ids[0], SDL_TRUE, &update);
     while (SDL_PollEvent(&event)); /* Flush event queue */
 
     /* Test motion forwarding */
     _mouseemu_last_event = 0;
     SET_POS(update, 121.25f, 110.75f);
-    SDL_SendPenMotion(NULL, ptest.ids[0], SDL_TRUE, &update);
+    SDL_SendPenMotion(ptest.ids[0], SDL_TRUE, &update);
     SDLTest_AssertCheck(SDL_MOUSEMOTION == _mouseemu_last_event,
                         "Mouse motion event: %d", _mouseemu_last_event);
     SDLTest_AssertCheck(121 == _mouseemu_last_x && 110 == _mouseemu_last_y,
@@ -1541,33 +1542,33 @@ pen_mouseEmulationDelayed(void *arg)
 
     /* Test button press reporting */
     for (i = 2; i <= 3; ++i) {
-            SDL_SendPenButton(NULL, ptest.ids[0], SDL_PRESSED, i);
+            SDL_SendPenButton(ptest.ids[0], SDL_PRESSED, i);
             SDLTest_AssertCheck(0 == _mouseemu_last_event,
                                 "Non-touching button press suppressed: %d", _mouseemu_last_event);
-            SDL_SendPenButton(NULL, ptest.ids[0], SDL_RELEASED, i);
+            SDL_SendPenButton(ptest.ids[0], SDL_RELEASED, i);
             SDLTest_AssertCheck(0 == _mouseemu_last_event,
                                 "Non-touching button release suppressed: %d", _mouseemu_last_event);
     }
 
     /* Touch surface (pen button 1) */
-    SDL_SendPenButton(NULL, ptest.ids[0], SDL_PRESSED, 1);
+    SDL_SendPenButton(ptest.ids[0], SDL_PRESSED, 1);
     _penmouse_expect_button(SDL_PRESSED, 1);
-    SDL_SendPenButton(NULL, ptest.ids[0], SDL_RELEASED, 1);
+    SDL_SendPenButton(ptest.ids[0], SDL_RELEASED, 1);
     _penmouse_expect_button(SDL_RELEASED, 1);
 
     /* Test button press reporting, releasing extra button AFTER lifting pen */
     for (i = 2; i <= 3; ++i) {
-        SDL_SendPenButton(NULL, ptest.ids[0], SDL_PRESSED, i);
+        SDL_SendPenButton(ptest.ids[0], SDL_PRESSED, i);
         SDLTest_AssertCheck(0 == _mouseemu_last_event,
                             "Non-touching button press suppressed (A.1): %d", _mouseemu_last_event);
-        SDL_SendPenButton(NULL, ptest.ids[0], SDL_PRESSED, 1);
+        SDL_SendPenButton(ptest.ids[0], SDL_PRESSED, 1);
         _penmouse_expect_button(SDL_PRESSED, i);
 
-        SDL_SendPenButton(NULL, ptest.ids[0], SDL_RELEASED, 1);
+        SDL_SendPenButton(ptest.ids[0], SDL_RELEASED, 1);
         _penmouse_expect_button(SDL_RELEASED, i);
 
 
-        SDL_SendPenButton(NULL, ptest.ids[0], SDL_RELEASED, i);
+        SDL_SendPenButton(ptest.ids[0], SDL_RELEASED, i);
         SDLTest_AssertCheck(0 == _mouseemu_last_event,
                             "Non-touching button press suppressed (A.2): %d", _mouseemu_last_event);
     }
@@ -1575,16 +1576,16 @@ pen_mouseEmulationDelayed(void *arg)
 
     /* Test button press reporting, releasing extra button BEFORE lifting pen */
     for (i = 2; i <= 3; ++i) {
-        SDL_SendPenButton(NULL, ptest.ids[0], SDL_PRESSED, i);
+        SDL_SendPenButton(ptest.ids[0], SDL_PRESSED, i);
         SDLTest_AssertCheck(0 == _mouseemu_last_event,
                             "Non-touching button press suppressed (B.1): %d", _mouseemu_last_event);
-        SDL_SendPenButton(NULL, ptest.ids[0], SDL_PRESSED, 1);
+        SDL_SendPenButton(ptest.ids[0], SDL_PRESSED, 1);
         _penmouse_expect_button(SDL_PRESSED, i);
 
-        SDL_SendPenButton(NULL, ptest.ids[0], SDL_RELEASED, i);
+        SDL_SendPenButton(ptest.ids[0], SDL_RELEASED, i);
         SDLTest_AssertCheck(0 == _mouseemu_last_event,
                             "Non-touching button press suppressed (B.2): %d", _mouseemu_last_event);
-        SDL_SendPenButton(NULL, ptest.ids[0], SDL_RELEASED, 1);
+        SDL_SendPenButton(ptest.ids[0], SDL_RELEASED, 1);
         _penmouse_expect_button(SDL_RELEASED, i);
     }
     SDLTest_AssertPass("Delayed button press mouse emulation, touching and then releasing button");
