@@ -41,12 +41,14 @@
 #define SDL_SendMouseButton SDL_Mock_SendMouseButton
 #define SDL_GetMouse SDL_Mock_GetMouse
 #define SDL_IsMousePositionInWindow SDL_Mock_IsMousePositionInWindow
+#define SDL_SetMouseFocus SDL_Mock_SetMouseFocus
 
 /* Mock mouse API */
 static int SDL_SendMouseMotion(SDL_Window * window, SDL_MouseID mouseID, int relative, int x, int y);
 static int SDL_SendMouseButton(SDL_Window * window, SDL_MouseID mouseID, Uint8 state, Uint8 button);
 static SDL_Mouse * SDL_GetMouse(void);
 static SDL_bool SDL_IsMousePositionInWindow(SDL_Window * window, SDL_MouseID mouseID, int x, int y);
+static void SDL_SetMouseFocus(SDL_Window * window);
 
 /* Import SUT code with macro-renamed function names  */
 #include "../src/events/SDL_pen_c.h"
@@ -72,6 +74,7 @@ static int _mouseemu_last_y = 0;
 static int _mouseemu_last_mouseid = 0;
 static int _mouseemu_last_button = 0;
 static int _mouseemu_last_relative = 0;
+static int _mouseemu_last_focus = -1;
 
 static int
 SDL_SendMouseButton(SDL_Window * window, SDL_MouseID mouseID, Uint8 state, Uint8 button)
@@ -107,6 +110,12 @@ SDL_GetMouse(void)
     dummy_mouse.mouseID = 0;
 
     return &dummy_mouse;
+}
+
+static void
+SDL_SetMouseFocus(SDL_Window * window)
+{
+    _mouseemu_last_focus = window ? 1 : 0;
 }
 
 /* ================= Test Case Support ================== */
