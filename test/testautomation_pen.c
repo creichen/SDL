@@ -35,7 +35,6 @@
 
 /* For SDL_Window, SDL_Mouse, SDL_MouseID: */
 #include "../src/events/SDL_mouse_c.h"
-
 /* Divert calls to mock mouse API: */
 #define SDL_SendMouseMotion SDL_Mock_SendMouseMotion
 #define SDL_SendMouseButton SDL_Mock_SendMouseButton
@@ -56,6 +55,8 @@ static void SDL_SetMouseFocus(SDL_Window * window);
 
 #include "SDL.h"
 #include "SDL_test.h"
+
+#include "../src/video/SDL_sysvideo.h" /* for SDL_Window */
 
 
 /* ================= Internal SDL API Compatibility ================== */
@@ -156,6 +157,7 @@ typedef struct {  /* Collection of pen (de)allocation information  */
     unsigned int deallocated_deviceinfo_flags; /* ith bits set to 1 if deviceinfo as *int with value i was deallocated */
     SDL_PenID ids[PEN_NUM_TEST_IDS];
     SDL_GUID guids[PEN_NUM_TEST_IDS];
+    SDL_Window *window;
     int num_ids;
     int initial_pen_count;
 } pen_testdata;
@@ -302,6 +304,7 @@ _pen_enableAndRestore(deviceinfo_backup *backup, int test_marksweep)
     }
 }
 
+static struct SDL_Window _test_window = { 0 };
 
 /* ---------------------------------------- */
 /* Default set-up and tear down routines    */
@@ -314,6 +317,12 @@ _setup_test(pen_testdata *ptest, int pens_for_testing)
     deviceinfo_backup *backup;
 
     ptest->initial_pen_count = SDL_NumPens();
+
+    /* Provide fake window for window enter/exit simulation */
+    _test_window.id = 0x7e57da7a;
+    _test_window.w = 1600;
+    _test_window.h = 1200;
+    ptest->window = &_test_window;
 
     /* Grab unused pen IDs for testing */
     _pen_unusedIDs(ptest, pens_for_testing);
@@ -919,6 +928,11 @@ pen_buttonReporting(void *arg)
         axes[i] = 0.0625f * i;  /* initialise with numbers that can be represented precisely in IEEE 754 and
                                    are > 0.0f and <= 1.0f */
     }
+
+    /* Let pens enter the test window */
+    SDL_SendPenWindowEvent(ptest.ids[0], ptest.window);
+    SDL_SendPenWindowEvent(ptest.ids[1], ptest.window);
+
     update.x = expected_x[0];
     update.y = expected_y[0];
     SDL_memcpy(update.axes, axes, sizeof(float) * SDL_PEN_NUM_AXES);
@@ -930,6 +944,7 @@ pen_buttonReporting(void *arg)
 
     while (SDL_PollEvent(&event)); /* Flush event queue */
     SDLTest_AssertPass("Pen and eraser set up for button testing");
+
 
     /* Actual tests start: pen, then eraser */
     for (pen_nr = 0; pen_nr < 2; ++pen_nr) {
@@ -1131,6 +1146,8 @@ pen_movementAndAxes(void *arg)
                                        SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT_MASK | SDL_PEN_AXIS_YTILT_MASK),
                        24);
     _pen_trackGCSweep(&ptest);
+    SDL_SendPenWindowEvent(ptest.ids[0], ptest.window);
+    SDL_SendPenWindowEvent(ptest.ids[1], ptest.window);
     while (SDL_PollEvent(&event)); /* Flush event queue */
     SDLTest_AssertPass("Pen and eraser set up for testing");
 
@@ -1442,6 +1459,9 @@ pen_mouseEmulation(void *arg)
                        20);
     _pen_trackGCSweep(&ptest);
 
+    /* Move pen into window */
+    SDL_SendPenWindowEvent(ptest.ids[0], ptest.window);
+
     /* Initialise pen location */
     SDL_memset(update.axes, 0, sizeof(update.axes));
     SET_POS(update, 100.0f, 100.0f);
@@ -1527,6 +1547,9 @@ pen_mouseEmulationDelayed(void *arg)
                                      SDL_PEN_INK_MASK | SDL_PEN_AXIS_PRESSURE_MASK | SDL_PEN_AXIS_XTILT | SDL_PEN_AXIS_YTILT),
                        20);
     _pen_trackGCSweep(&ptest);
+
+    /* Move pen into window */
+    SDL_SendPenWindowEvent(ptest.ids[0], ptest.window);
 
     /* Initialise pen location */
     SDL_memset(update.axes, 0, sizeof(update.axes));
