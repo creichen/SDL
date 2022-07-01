@@ -41,7 +41,7 @@
 #include "viewporter-client-protocol.h"
 
 #ifdef HAVE_LIBDECOR_H
-#include <libdecor.h>
+#include <libdecor-0/libdecor.h>
 #endif
 
 SDL_FORCE_INLINE SDL_bool

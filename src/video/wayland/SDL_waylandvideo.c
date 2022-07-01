@@ -57,7 +57,7 @@
 #include "viewporter-client-protocol.h"
 
 #ifdef HAVE_LIBDECOR_H
-#include <libdecor.h>
+#include <libdecor-0/libdecor.h>
 #endif
 
 #define WAYLANDVID_DRIVER_NAME "wayland"

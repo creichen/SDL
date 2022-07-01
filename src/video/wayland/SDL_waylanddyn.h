@@ -121,7 +121,7 @@ void SDL_WAYLAND_UnloadSymbols(void);
 
 #ifdef HAVE_LIBDECOR_H
 /* Must be included before our defines */
-#include <libdecor.h>
+#include <libdecor-0/libdecor.h>
 
 #define libdecor_unref (*WAYLAND_libdecor_unref)
 #define libdecor_new (*WAYLAND_libdecor_new)
@@ -159,7 +159,7 @@ void SDL_WAYLAND_UnloadSymbols(void);
 #else /* SDL_VIDEO_DRIVER_WAYLAND_DYNAMIC */
 
 #ifdef HAVE_LIBDECOR_H
-#include <libdecor.h>
+#include <libdecor-0/libdecor.h>
 #endif
 
 #endif /* SDL_VIDEO_DRIVER_WAYLAND_DYNAMIC */

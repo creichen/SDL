@@ -44,7 +44,7 @@
 #include "tablet-unstable-v2-client-protocol.h"
 
 #ifdef HAVE_LIBDECOR_H
-#include <libdecor.h>
+#include <libdecor-0/libdecor.h>
 #endif
 
 #ifdef SDL_INPUT_LINUXEV
