@@ -49,6 +49,9 @@ static SDL_Mouse * SDL_GetMouse(void);
 static SDL_bool SDL_IsMousePositionInWindow(SDL_Window * window, SDL_MouseID mouseID, int x, int y);
 static void SDL_SetMouseFocus(SDL_Window * window);
 
+/* Disable libdecor integration to avoid unnecessary complexity in build */
+#undef HAVE_LIBDECOR_H
+
 /* Import SUT code with macro-renamed function names  */
 #include "../src/events/SDL_pen_c.h"
 #include "../src/events/SDL_pen.c"
