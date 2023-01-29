@@ -359,7 +359,7 @@ SDL_PenModifyEnd(SDL_Pen * pen, SDL_bool attach)
     if (is_new) {
         /* default: name */
         if (!pen->name[0]) {
-            SDL_snprintf(pen->name, sizeof(pen->name), "%s %d",
+            SDL_snprintf(pen->name, sizeof(pen->name), "%s %u",
                          pen->type == SDL_PEN_TYPE_ERASER ? "Eraser" : "Pen",
                          pen->header.id);
         }
@@ -474,8 +474,8 @@ SDL_SendPenMotion(SDL_PenID penid,
     /* Check if the event actually modifies any cached axis or location, update as neeed */
     if (x != last_x || y != last_y) {
         axes_changed = SDL_TRUE;
-        pen->last.x = status->x;
-        pen->last.y = status->y;
+        pen->last.x = x;
+        pen->last.y = y;
     }
     for (i = 0; i < SDL_PEN_NUM_AXES; ++i) {
         if ((pen->header.flags & SDL_PEN_AXIS_CAPABILITY(i))

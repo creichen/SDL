@@ -308,7 +308,7 @@ process_event(SDL_Event event)
         last_rotation = ev->axes[SDL_PEN_AXIS_ROTATION];
         last_was_eraser = ev->pen_state & SDL_PEN_ERASER_MASK;
         last_button = ev->pen_state & 0xf; /* button mask */
-#if VERBOSE
+#if 1
         SDL_Log("pen button: %s %u at %f,%f; BUTTON %d reported %s with event %s [pressure=%.3f, tilt=%.3f/%.3f, dist=%.3f]\n",
                 last_was_eraser ? "eraser" : "pen",
                 (unsigned int) ev->which, ev->x, ev->y,
@@ -370,6 +370,8 @@ loop(void)
 
 int main(int argc, char* argv[])
 {
+    SDL_LogSetAllPriority(SDL_LOG_PRIORITY_VERBOSE);
+
     state = SDLTest_CommonCreateState(argv, SDL_INIT_VIDEO);
     if (!state) {
         return 1;

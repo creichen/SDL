@@ -112,7 +112,7 @@ typedef enum {
 
 /**
  * Pen types
- *
+ * 
  * Some pens identify as a particular type of drawing device (e.g., an airbrush or a pencil).
  * Clients can use this information e.g. to select default behaviour.
  *
