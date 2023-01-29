@@ -627,6 +627,120 @@ WIN_KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 
 static int seq;
 
+static void
+WIN_HandlePointerMessage(UINT msg, WPARAM wParam, LPARAM lParam, SDL_WindowData *data)
+{
+    UINT pointerId = GET_POINTERID_WPARAM(wParam);
+    POINTER_INPUT_TYPE type;
+    POINTER_PEN_INFO penInfo;
+    UINT32 cursor;
+    SDL_PenID penId;
+    SDL_Pen *pen;
+
+    if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
+        return;
+    }
+
+    if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
+        return;
+    }
+
+    penId = cursor;
+
+    pen = SDL_GetPen(penId);
+    if (pen == NULL) {
+        /* Should never happen. */
+        return;
+    }
+
+    switch (msg) {
+    case WM_POINTERUPDATE:
+    {
+        SDL_PenStatusInfo statusInfo = { 0 };
+        WIN_PenRectData *penRectData;
+
+        penRectData = &((WIN_PenDriverInfo *) pen->deviceinfo)->RectData;
+
+        statusInfo.x = penInfo.pointerInfo.ptHimetricLocation.x * penRectData->ScaleX + penRectData->OffsetX;
+        statusInfo.y = penInfo.pointerInfo.ptHimetricLocation.y * penRectData->ScaleY + penRectData->OffsetY;
+
+        // SDL_Log("X: %f, Y: %f", statusInfo.x, statusInfo.y);
+        // SDL_Log("%u %d WM_POINTERUPDATE: %4x flags: %4x", cursor, ++seq, HIWORD(wParam), penInfo.penFlags);
+
+        if (penInfo.penMask & PEN_MASK_PRESSURE)
+            statusInfo.axes[SDL_PEN_AXIS_PRESSURE] = penInfo.pressure / 1024.0f;
+
+        if (penInfo.penMask & PEN_MASK_TILT_X)
+            statusInfo.axes[SDL_PEN_AXIS_XTILT] = SDL_sinf(penInfo.tiltX * (float) (M_PI / 180.0f));
+
+        if (penInfo.penMask & PEN_MASK_TILT_Y)
+            statusInfo.axes[SDL_PEN_AXIS_YTILT] = SDL_sinf(penInfo.tiltY * (float) (M_PI / 180.0f));
+
+        if (penInfo.penMask & PEN_MASK_ROTATION) {
+            float rot = penInfo.rotation / 360.0f;
+            if (rot > 0.5f) {
+                rot -= 1.0f;
+            }
+
+            rot *= 2.0f;
+            statusInfo.axes[SDL_PEN_AXIS_ROTATION] = rot;
+        }
+
+        SDL_SendPenMotion(penId, SDL_FALSE, &statusInfo);
+    } break;
+
+    case WM_POINTERDOWN:
+    {
+        SDL_Log("%u %d WM_POINTERDOWN: %4x flags: %4x", penId, ++seq, HIWORD(wParam), penInfo.penFlags);
+
+        if (IS_POINTER_FIRSTBUTTON_WPARAM(wParam)) {
+            SDL_SendPenButton(penId, SDL_PRESSED, 1);
+        } else if (IS_POINTER_SECONDBUTTON_WPARAM(wParam)) {
+            SDL_SendPenButton(penId, SDL_PRESSED, 2);
+        }
+    } break;
+
+    case WM_POINTERUP:
+    {
+        SDL_Log("%u %d WM_POINTERUP: %4x flags: %4x", penId, ++seq, HIWORD(wParam), penInfo.penFlags);
+
+        if (pen->last.buttons & 0x1) {
+            SDL_SendPenButton(penId, SDL_RELEASED, 1);
+        }
+
+        if (pen->last.buttons & 0x2) {
+            SDL_SendPenButton(penId, SDL_RELEASED, 2);
+        }
+    } break;
+
+    case WM_POINTERENTER:
+    {
+        SDL_Log("WM_POINTERENTER");
+        SDL_SendPenWindowEvent(penId, data->window);
+    } break;
+
+    case WM_POINTERLEAVE:
+    {
+        SDL_Log("WM_POINTERLEAVE");
+        SDL_SendPenWindowEvent(penId, NULL);
+    } break;
+
+    case WM_POINTERCAPTURECHANGED:
+    {
+        SDL_Log("WM_POINTERCAPTURECHANGED");
+        SDL_SendPenWindowEvent(penId, NULL);
+
+        if (pen->last.buttons & 0x1) {
+            SDL_SendPenButton(penId, SDL_RELEASED, 1);
+        }
+
+        if (pen->last.buttons & 0x2) {
+            SDL_SendPenButton(penId, SDL_RELEASED, 2);
+        }
+    } break;
+    }
+}
+
 LRESULT CALLBACK
 WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -725,191 +839,19 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_POINTERUPDATE:
         {
-            UINT pointerId = GET_POINTERID_WPARAM(wParam);
-            POINTER_INPUT_TYPE type;
-            POINTER_PEN_INFO penInfo;
-            UINT32 cursor;
-            SDL_PenStatusInfo statusInfo = { 0 };
-            SDL_Pen *pen;
-            WIN_PenRectData *penRectData;
-
             data->last_pointer_update = lParam;
-            if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
-                break;
-            }
-
-            if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
-                break;
-            }
-
-            pen = SDL_GetPen(cursor);
-            if (pen == NULL) {
-                /* Should never happen. */
-                break;
-            }
-
-            penRectData = &((WIN_PenDriverInfo *) pen->deviceinfo)->RectData;
-
-            statusInfo.x = penInfo.pointerInfo.ptHimetricLocation.x * penRectData->ScaleX + penRectData->OffsetX;
-            statusInfo.y = penInfo.pointerInfo.ptHimetricLocation.y * penRectData->ScaleY + penRectData->OffsetY;
-
-            // SDL_Log("X: %f, Y: %f", statusInfo.x, statusInfo.y);
-            // SDL_Log("%u %d WM_POINTERUPDATE: %4x flags: %4x", cursor, ++seq, HIWORD(wParam), penInfo.penFlags);
-
-            if (penInfo.penMask & PEN_MASK_PRESSURE)
-                statusInfo.axes[SDL_PEN_AXIS_PRESSURE] = penInfo.pressure / 1024.0f;
-
-            if (penInfo.penMask & PEN_MASK_TILT_X)
-                statusInfo.axes[SDL_PEN_AXIS_XTILT] = SDL_sinf(penInfo.tiltX * (float)(M_PI / 180.0f));
-
-            if (penInfo.penMask & PEN_MASK_TILT_Y)
-                statusInfo.axes[SDL_PEN_AXIS_YTILT] = SDL_sinf(penInfo.tiltY * (float)(M_PI / 180.0f));
-
-            if (penInfo.penMask & PEN_MASK_ROTATION) {
-                float rot = penInfo.rotation / 360.0f;
-                if (rot > 0.5f) {
-                    rot -= 1.0f;
-                }
-
-                rot *= 2.0f;
-                statusInfo.axes[SDL_PEN_AXIS_ROTATION] = rot;
-            }
-
-            SDL_SendPenMotion(cursor, SDL_FALSE, &statusInfo);
-
-            returnCode = 0;
-            break;
         }
+
+        /* Intentional case fall-through to handle rest of pointer message. */
 
     case WM_POINTERDOWN:
-        {
-            UINT pointerId = GET_POINTERID_WPARAM(wParam);
-            POINTER_INPUT_TYPE type;
-            POINTER_PEN_INFO penInfo;
-            UINT32 cursor;
-            SDL_Pen *pen;
-
-            data->last_pointer_update = lParam;
-            if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
-                break;
-            }
-
-            if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
-                break;
-            }
-
-            SDL_Log("%u %d WM_POINTERDOWN: %4x flags: %4x", cursor, ++seq, HIWORD(wParam), penInfo.penFlags);
-
-            pen = SDL_GetPen(cursor);
-            if (pen == NULL) {
-                /* Should never happen. */
-                break;
-            }
-
-            if (IS_POINTER_FIRSTBUTTON_WPARAM(wParam)) {
-                SDL_SendPenButton(cursor, SDL_PRESSED, 1);
-            } else if (IS_POINTER_SECONDBUTTON_WPARAM(wParam)) {
-                SDL_SendPenButton(cursor, SDL_PRESSED, 2);
-            }
-
-            returnCode = 0;
-            break;
-        }
-
     case WM_POINTERUP:
-        {
-            UINT pointerId = GET_POINTERID_WPARAM(wParam);
-            POINTER_INPUT_TYPE type;
-            POINTER_PEN_INFO penInfo;
-            UINT32 cursor;
-            SDL_Pen *pen;
-
-            data->last_pointer_update = lParam;
-            if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
-                break;
-            }
-
-            if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
-                break;
-            }
-
-            pen = SDL_GetPen(cursor);
-            if (pen == NULL) {
-                /* Should never happen. */
-                break;
-            }
-
-            SDL_Log("%u %d WM_POINTERUP: %4x flags: %4x", cursor, ++seq, HIWORD(wParam), penInfo.penFlags);
-
-            if (pen->last.buttons & 0x1) {
-                SDL_SendPenButton(cursor, SDL_RELEASED, 1);
-            }
-
-            if (pen->last.buttons & 0x2) {
-                SDL_SendPenButton(cursor, SDL_RELEASED, 2);
-            }
-
-            returnCode = 0;
-            break;
-        }
-        
     case WM_POINTERENTER:
-        {
-            UINT pointerId = GET_POINTERID_WPARAM(wParam);
-            UINT32 cursor;
-            POINTER_INPUT_TYPE type;
-            POINTER_PEN_INFO penInfo;
-            
-            if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
-                break;
-            }
-
-            if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
-                break;
-            }
-
-            SDL_Log("WM_POINTERENTER");
-            SDL_SendPenWindowEvent(cursor, data->window);
-            break;
-        }
-
     case WM_POINTERLEAVE:
-        {
-            UINT pointerId = GET_POINTERID_WPARAM(wParam);
-            UINT32 cursor;
-            POINTER_INPUT_TYPE type;
-            POINTER_PEN_INFO penInfo;
-
-            if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
-                break;
-            }
-
-            if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
-                break;
-            }
-
-            SDL_Log("WM_POINTERLEAVE");
-            SDL_SendPenWindowEvent(cursor, NULL);
-            break;
-        }
-
     case WM_POINTERCAPTURECHANGED:
         {
-            UINT pointerId = GET_POINTERID_WPARAM(wParam);
-            UINT32 cursor;
-            POINTER_INPUT_TYPE type;
-            POINTER_PEN_INFO penInfo;
-
-            if (!GetPointerType(pointerId, &type) || type != PT_PEN) {
-                break;
-            }
-
-            if (!GetPointerCursorId(pointerId, &cursor) || !GetPointerPenInfo(pointerId, &penInfo)) {
-                break;
-            }
-
-            SDL_Log("WM_POINTERCAPTURECHANGED");
-            SDL_SendPenWindowEvent(cursor, NULL);
+            WIN_HandlePointerMessage(msg, wParam, lParam, data);
+            returnCode = 0;
             break;
         }
 
