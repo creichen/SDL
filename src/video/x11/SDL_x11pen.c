@@ -114,9 +114,9 @@ static void pen_atoms_ensure_initialized(SDL_VideoDevice *_this)
     pen_atoms.device_product_id = X11_XInternAtom(data->display, "Device Product ID", False);
     pen_atoms.wacom_serial_ids = X11_XInternAtom(data->display, "Wacom Serial IDs", False);
     pen_atoms.wacom_tool_type = X11_XInternAtom(data->display, "Wacom Tool Type", False);
-    pen_atoms.abs_pressure = X11_XInternAtom(data->display, "Abs Pressure", True);
-    pen_atoms.abs_tilt_x = X11_XInternAtom(data->display, "Abs Tilt X", True);
-    pen_atoms.abs_tilt_y = X11_XInternAtom(data->display, "Abs Tilt Y", True);
+    pen_atoms.abs_pressure = X11_XInternAtom(data->display, "Abs Pressure", False);
+    pen_atoms.abs_tilt_x = X11_XInternAtom(data->display, "Abs Tilt X", False);
+    pen_atoms.abs_tilt_y = X11_XInternAtom(data->display, "Abs Tilt Y", False);
 
     pen_atoms.initialized = 1;
 }
@@ -175,8 +175,6 @@ static Uint32 xinput2_pen_evdevid(SDL_VideoDevice *_this, int deviceid)
 #if !(SDL_PEN_DEBUG_NOID)
     Sint32 ids[2];
 
-    pen_atoms_ensure_initialized(_this);
-
     if (2 != xinput2_pen_get_int_property(_this, deviceid, pen_atoms.device_product_id, ids, 2)) {
         return 0;
     }
@@ -206,8 +204,6 @@ static SDL_bool xinput2_wacom_deviceid(SDL_VideoDevice *_this, int deviceid, Uin
     Sint32 serial_id_buf[3];
     int result;
 
-    pen_atoms_ensure_initialized(_this);
-
     if ((result = xinput2_pen_get_int_property(_this, deviceid, pen_atoms.wacom_serial_ids, serial_id_buf, 3)) == 3) {
         *wacom_devicetype_id = serial_id_buf[2];
         *wacom_serial = serial_id_buf[1];
@@ -226,8 +222,6 @@ static SDL_bool xinput2_pen_is_eraser(SDL_VideoDevice *_this, int deviceid, char
     SDL_VideoData *data = (SDL_VideoData *)_this->driverdata;
     char dev_name[PEN_ERASER_ID_MAXLEN];
     int k;
-
-    pen_atoms_ensure_initialized(_this);
 
     if (pen_atoms.wacom_tool_type != None) {
         Atom type_return;
@@ -418,6 +412,8 @@ void X11_InitPen(SDL_VideoDevice *_this)
     XIDeviceInfo *device_info;
     int num_device_info;
 
+    pen_atoms_ensure_initialized(_this);
+
     device_info = X11_XIQueryDevice(data->display, XIAllDevices, &num_device_info);
     if (!device_info) {
         return;
@@ -445,7 +441,7 @@ void X11_InitPen(SDL_VideoDevice *_this)
         int old_num_pens_known = pen_map.num_pens_known;
         int k;
 
-        /* Only track physical devices that are enabled */
+        /* Only track physical devices that are enabled and look like pens */
         if (dev->use != XISlavePointer || dev->enabled == 0 || !xinput2_device_is_pen(dev)) {
             continue;
         }
